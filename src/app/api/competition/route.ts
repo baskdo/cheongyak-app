@@ -1,129 +1,145 @@
-import { NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
-import csv from 'csv-parser'
-import iconv from 'iconv-lite'
+import { NextRequest } from "next/server"
+import fs from "fs"
+import path from "path"
 
-const CMPET_SVC = 'https://api.odcloud.kr/api/ApplyhomeInfoCmpetRtSvc/v1'
+function parseCSV(text:string){
 
-async function loadSupplyMap() {
-  const file = path.join(process.cwd(), 'data', 'apt_supply_info.csv')
+  const lines = text.split("\n").filter(Boolean)
+  const header = lines[0].split(",")
 
-  const map: Record<string, any> = {}
+  return lines.slice(1).map(line=>{
 
-  return new Promise<Record<string, any>>((resolve) => {
-    fs.createReadStream(file)
-      .pipe(iconv.decodeStream('cp949'))
-      .pipe(csv())
-      .on('data', (row) => {
-        const pblanc = row['공고번호']
-        if (!pblanc) return
+    const cols = line.split(",")
 
-        map[pblanc] = {
-          houseName: row['주택명'] || '',
-          region: row['공급지역명'] || '',
-          address: row['공급위치'] || '',
-          pblancDate: row['모집공고일'] || '',
-        }
-      })
-      .on('end', () => resolve(map))
-  })
-}
+    const obj:any = {}
 
-async function loadCompetition(year: number) {
-  const file = path.join(process.cwd(), 'data', 'apt_competition_history.csv')
-
-  const rows: any[] = []
-
-  return new Promise<any[]>((resolve) => {
-    fs.createReadStream(file)
-      .pipe(iconv.decodeStream('cp949'))
-      .pipe(csv())
-      .on('data', (row) => {
-        const pblanc = String(row['공고번호'])
-
-        if (pblanc.startsWith(String(year))) {
-          rows.push(row)
-        }
-      })
-      .on('end', () => resolve(rows))
-  })
-}
-
-export async function GET(request: Request) {
-
-  const { searchParams } = new URL(request.url)
-
-  const year = parseInt(searchParams.get('year') || '')
-  const keyword = searchParams.get('keyword') || ''
-  const region = searchParams.get('region') || ''
-
-  const currentYear = new Date().getFullYear()
-
-  // 최근 3개년 → 실시간 API
-  if (year >= currentYear - 2) {
-
-    const apiKey = process.env.API_KEY2
-    const enc = encodeURIComponent(apiKey || '')
-
-    const res = await fetch(
-      `${CMPET_SVC}/getAPTLttotPblancCmpet?serviceKey=${enc}&page=1&perPage=200&returnType=JSON`
-    )
-
-    const data = await res.json()
-
-    return NextResponse.json({
-      items: data.data || [],
-      total: data.totalCount || 0,
+    header.forEach((h,i)=>{
+      obj[h.trim()] = cols[i]
     })
-  }
 
-  // 과거 데이터 → CSV
+    return obj
+  })
+}
 
-  const supplyMap = await loadSupplyMap()
-  const rows = await loadCompetition(year)
+export async function GET(req:NextRequest){
 
-  const group: Record<string, any> = {}
+  const { searchParams } = new URL(req.url)
 
-  rows.forEach((r) => {
+  const year = Number(searchParams.get("year"))
+  const region = searchParams.get("region")
 
-    const pblanc = r['공고번호']
-    const supply = supplyMap[pblanc]
+  const base = process.cwd()
 
-    if (!group[pblanc]) {
-      group[pblanc] = {
-        pblancNo: pblanc,
-        houseName: supply?.houseName || '',
-        region: supply?.region || '',
-        rceptBgnde: '',
-        rceptEndde: '',
-        houseTypes: []
+  const competitionPath =
+  path.join(base,"data","apt_competition_history.csv")
+
+  const supplyPath =
+  path.join(base,"data","apt_supply_info.csv")
+
+  const typePath =
+  path.join(base,"data","apt_house_type_info.csv")
+
+  const competitionCSV =
+  fs.readFileSync(competitionPath,"utf8")
+
+  const supplyCSV =
+  fs.readFileSync(supplyPath,"utf8")
+
+  const typeCSV =
+  fs.readFileSync(typePath,"utf8")
+
+  const competition = parseCSV(competitionCSV)
+  const supply = parseCSV(supplyCSV)
+  const types = parseCSV(typeCSV)
+
+  // 연도 필터
+  const filteredSupply = supply.filter((row:any)=>{
+
+    const date = row.RCRIT_PBLANC_DE || ""
+    return date.startsWith(String(year))
+
+  })
+
+  // 지역 필터
+  const regionSupply = region
+    ? filteredSupply.filter((r:any)=>r.CNP_CD_NM?.includes(region))
+    : filteredSupply
+
+  const pblancSet = new Set(
+    regionSupply.map((r:any)=>r.PBLANC_NO)
+  )
+
+  const filteredCompetition =
+  competition.filter((r:any)=>pblancSet.has(r.PBLANC_NO))
+
+  // 단지 그룹화
+  const grouped:any = {}
+
+  filteredCompetition.forEach((row:any)=>{
+
+    const key = row.PBLANC_NO
+
+    if(!grouped[key]){
+
+      const info =
+      regionSupply.find((s:any)=>s.PBLANC_NO==key)
+
+      grouped[key] = {
+
+        pblancNo:key,
+        houseName:info?.HOUSE_NM,
+        region:info?.CNP_CD_NM,
+        start:info?.RCRIT_PBLANC_DE,
+        types:{}
+
       }
+
     }
 
-    group[pblanc].houseTypes.push({
-      type: r['주택형'],
-      rate: r['경쟁률'],
-      reqCnt: r['접수건수'],
-      suply: r['공급세대수'],
-      rank: r['순위'],
-      reside: r['거주지역']
-    })
+    const type = row.HOUSE_TY
+
+    if(!grouped[key].types[type]){
+
+      grouped[key].types[type] = {
+
+        supply:Number(row.SUPLY_HSHLDCO),
+        rank1Local:0,
+        rank1Other:0,
+        rank2Local:0,
+        rank2Other:0
+
+      }
+
+    }
+
+    const t = grouped[key].types[type]
+
+    if(row.SUBSCRPT_RANK_CODE==1){
+
+      if(row.RESIDE_SECD=="01")
+        t.rank1Local += Number(row.REQ_CNT)
+
+      else
+        t.rank1Other += Number(row.REQ_CNT)
+
+    }
+
+    if(row.SUBSCRPT_RANK_CODE==2){
+
+      if(row.RESIDE_SECD=="01")
+        t.rank2Local += Number(row.REQ_CNT)
+
+      else
+        t.rank2Other += Number(row.REQ_CNT)
+
+    }
 
   })
 
-  let results = Object.values(group)
+  const items = Object.values(grouped)
 
-  if (keyword) {
-    results = results.filter((r:any) => r.houseName.includes(keyword))
-  }
-
-  if (region && region !== '전체') {
-    results = results.filter((r:any) => r.region.includes(region))
-  }
-
-  return NextResponse.json({
-    items: results,
-    total: results.length
+  return Response.json({
+    items
   })
+
 }
