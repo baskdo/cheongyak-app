@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     const spsplyItems: Record<string, string>[] = spsplyData?.data || []
 
     // 공고번호 목록
-    const pblancNos = [...new Set(cmpetItems.map(i => i['PBLANC_NO']).filter(Boolean))]
+    const pblancNos = Array.from(new Set(cmpetItems.map(i => i['PBLANC_NO']).filter(Boolean)))
 
     // 2. 공고 상세 API에서 단지명/주소/기간 가져오기 (API_KEY1 사용)
     const detailMap: Record<string, { name: string; address: string; rceptBgnde: string; rceptEndde: string }> = {}
