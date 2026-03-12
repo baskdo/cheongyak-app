@@ -32,6 +32,7 @@ type HouseTypeRate = {
   suply: string
   rank: string
   reside: string
+  spsply?: Record<string, string>
 }
 
 type CompetitionItem = {
@@ -292,6 +293,36 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
           )
         })}
       </div>
+
+      {/* 특별공급 현황 */}
+      {(() => {
+        const spsplyRow = item.houseTypes.find(h => h.spsply)?.spsply
+        if (!spsplyRow) return null
+        const spsplyTypes = [
+          { label: '다자녀', suply: 'MNYCH_HSHLDCO', cnt: 'CRSPAREA_MNYCH_CNT' },
+          { label: '신혼부부', suply: 'NWWDS_NMTW_HSHLDCO', cnt: 'CRSPAREA_NWWDS_NMTW_CNT' },
+          { label: '생애최초', suply: 'LFE_FRST_HSHLDCO', cnt: 'CRSPAREA_LFE_FRST_CNT' },
+          { label: '신생아', suply: 'NWBB_NWBBSHR_HSHLDCO', cnt: 'CRSPAREA_NWBB_NWBBSHR_CNT' },
+          { label: '청년', suply: 'YGMN_HSHLDCO', cnt: 'CRSPAREA_YGMN_CNT' },
+          { label: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', cnt: 'CRSPAREA_OPS_CNT' },
+        ].filter(s => parseInt(spsplyRow[s.suply] || '0') > 0)
+        if (spsplyTypes.length === 0) return null
+        return (
+          <div className="border-t border-blue-50 pt-3">
+            <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 신청현황</p>
+            <div className="grid grid-cols-2 gap-1">
+              {spsplyTypes.map((s, i) => (
+                <div key={i} className="bg-blue-50 rounded-lg px-2 py-1.5 flex justify-between items-center">
+                  <span className="text-xs text-gray-600">{s.label}</span>
+                  <span className="text-xs font-semibold text-blue-700">
+                    {parseInt(spsplyRow[s.cnt] || '0')} / {parseInt(spsplyRow[s.suply] || '0')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       {typeKeys.length > 2 && (
         <button onClick={() => setExpanded(!expanded)}
