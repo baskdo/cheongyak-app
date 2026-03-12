@@ -1,145 +1,155 @@
-import { NextRequest } from "next/server"
-import fs from "fs"
-import path from "path"
+import { NextResponse } from 'next/server'
+import { loadCSV, pick } from '@/lib/csvLoader'
 
-function parseCSV(text:string){
-
-  const lines = text.split("\n").filter(Boolean)
-  const header = lines[0].split(",")
-
-  return lines.slice(1).map(line=>{
-
-    const cols = line.split(",")
-
-    const obj:any = {}
-
-    header.forEach((h,i)=>{
-      obj[h.trim()] = cols[i]
-    })
-
-    return obj
-  })
+type HouseTypeRate = {
+  type: string
+  rate: string
+  reqCnt: string
+  suply: string
+  rank: string
+  reside: string
+  spsply?: Record<string, string>
 }
 
-export async function GET(req:NextRequest){
+type CompetitionItem = {
+  pblancNo: string
+  houseName: string
+  region: string
+  rceptBgnde: string
+  rceptEndde: string
+  houseTypes: HouseTypeRate[]
+}
 
-  const { searchParams } = new URL(req.url)
+function normalizeRegion(value: string): string {
+  if (!value) return '기타'
+  const text = value.trim()
 
-  const year = Number(searchParams.get("year"))
-  const region = searchParams.get("region")
+  if (text.includes('서울')) return '서울'
+  if (text.includes('경기')) return '경기'
+  if (text.includes('인천')) return '인천'
+  if (text.includes('부산')) return '부산'
+  if (text.includes('대구')) return '대구'
+  if (text.includes('광주')) return '광주'
+  if (text.includes('대전')) return '대전'
+  if (text.includes('울산')) return '울산'
+  if (text.includes('세종')) return '세종'
+  if (text.includes('강원')) return '강원'
+  if (text.includes('충북')) return '충북'
+  if (text.includes('충남')) return '충남'
+  if (text.includes('전북')) return '전북'
+  if (text.includes('전남')) return '전남'
+  if (text.includes('경북')) return '경북'
+  if (text.includes('경남')) return '경남'
+  if (text.includes('제주')) return '제주'
 
-  const base = process.cwd()
+  return text
+}
 
-  const competitionPath =
-  path.join(base,"data","apt_competition_history.csv")
+function toYm(dateStr: string): string {
+  const cleaned = (dateStr || '').replace(/[./]/g, '-')
 
-  const supplyPath =
-  path.join(base,"data","apt_supply_info.csv")
+  if (/^\d{8}$/.test(cleaned)) return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}`
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned.slice(0, 7)
+  if (/^\d{4}-\d{2}$/.test(cleaned)) return cleaned
+  return ''
+}
 
-  const typePath =
-  path.join(base,"data","apt_house_type_info.csv")
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
 
-  const competitionCSV =
-  fs.readFileSync(competitionPath,"utf8")
+    const keyword = (searchParams.get('keyword') || '').trim()
+    const region = (searchParams.get('region') || '').trim()
+    const yearMonthFrom = (searchParams.get('yearMonthFrom') || '').trim()
+    const yearMonthTo = (searchParams.get('yearMonthTo') || '').trim()
 
-  const supplyCSV =
-  fs.readFileSync(supplyPath,"utf8")
+    const rows = loadCSV('apt_competition_history.csv')
+    console.log('[competition] raw rows:', rows.length)
 
-  const typeCSV =
-  fs.readFileSync(typePath,"utf8")
+    const filtered = rows.filter(r => {
+      const houseName = pick(r, ['HOUSE_NM', 'HOUSE_NAME'])
+      const rowRegion = normalizeRegion(pick(r, ['SUBSCRPT_AREA_CODE_NM', 'REGION']))
+      const baseDate = pick(r, ['RCEPT_BGNDE', 'PBLANC_DE'])
+      const ym = toYm(baseDate)
 
-  const competition = parseCSV(competitionCSV)
-  const supply = parseCSV(supplyCSV)
-  const types = parseCSV(typeCSV)
+      const keywordMatch = !keyword || houseName.includes(keyword)
+      const regionMatch = !region || region === '전체' || rowRegion === region
+      const fromMatch = !yearMonthFrom || (ym && ym >= yearMonthFrom)
+      const toMatch = !yearMonthTo || (ym && ym <= yearMonthTo)
 
-  // 연도 필터
-  const filteredSupply = supply.filter((row:any)=>{
+      return keywordMatch && regionMatch && fromMatch && toMatch
+    })
 
-    const date = row.RCRIT_PBLANC_DE || ""
-    return date.startsWith(String(year))
+    console.log('[competition] filtered rows:', filtered.length)
 
-  })
+    const grouped = new Map<string, CompetitionItem>()
 
-  // 지역 필터
-  const regionSupply = region
-    ? filteredSupply.filter((r:any)=>r.CNP_CD_NM?.includes(region))
-    : filteredSupply
+    for (const r of filtered) {
+      const pblancNo = pick(r, ['PBLANC_NO', 'HOUSE_MANAGE_NO'])
+      if (!pblancNo) continue
 
-  const pblancSet = new Set(
-    regionSupply.map((r:any)=>r.PBLANC_NO)
-  )
-
-  const filteredCompetition =
-  competition.filter((r:any)=>pblancSet.has(r.PBLANC_NO))
-
-  // 단지 그룹화
-  const grouped:any = {}
-
-  filteredCompetition.forEach((row:any)=>{
-
-    const key = row.PBLANC_NO
-
-    if(!grouped[key]){
-
-      const info =
-      regionSupply.find((s:any)=>s.PBLANC_NO==key)
-
-      grouped[key] = {
-
-        pblancNo:key,
-        houseName:info?.HOUSE_NM,
-        region:info?.CNP_CD_NM,
-        start:info?.RCRIT_PBLANC_DE,
-        types:{}
-
+      if (!grouped.has(pblancNo)) {
+        grouped.set(pblancNo, {
+          pblancNo,
+          houseName: pick(r, ['HOUSE_NM', 'HOUSE_NAME']),
+          region: normalizeRegion(pick(r, ['SUBSCRPT_AREA_CODE_NM', 'REGION'])),
+          rceptBgnde: pick(r, ['RCEPT_BGNDE']),
+          rceptEndde: pick(r, ['RCEPT_ENDDE']),
+          houseTypes: [],
+        })
       }
 
-    }
+      const item = grouped.get(pblancNo)!
 
-    const type = row.HOUSE_TY
-
-    if(!grouped[key].types[type]){
-
-      grouped[key].types[type] = {
-
-        supply:Number(row.SUPLY_HSHLDCO),
-        rank1Local:0,
-        rank1Other:0,
-        rank2Local:0,
-        rank2Other:0
-
+      const row: HouseTypeRate = {
+        type: pick(r, ['HOUSE_TY', 'MODEL_NO']),
+        rate: pick(r, ['CMPET_RATE']) || '-',
+        reqCnt: pick(r, ['REQ_CNT']) || '0',
+        suply: pick(r, ['SUPLY_HSHLDCO']) || '0',
+        rank: String(pick(r, ['SUBSCRPT_RANK_CODE']) || ''),
+        reside: pick(r, ['RESIDE_SENM']) || '',
       }
 
+      const specialKeys = [
+        'MNYCH_HSHLDCO',
+        'NWWDS_NMTW_HSHLDCO',
+        'LFE_FRST_HSHLDCO',
+        'NWBB_NWBBSHR_HSHLDCO',
+        'YGMN_HSHLDCO',
+        'OLD_PARNTS_SUPORT_HSHLDCO',
+        'CRSPAREA_MNYCH_CNT',
+        'CRSPAREA_NWWDS_NMTW_CNT',
+        'CRSPAREA_LFE_FRST_CNT',
+        'CRSPAREA_NWBB_NWBBSHR_CNT',
+        'CRSPAREA_YGMN_CNT',
+        'CRSPAREA_OPS_CNT',
+      ]
+
+      const spsply: Record<string, string> = {}
+      let hasSpecial = false
+
+      for (const key of specialKeys) {
+        if (r[key] !== undefined && r[key] !== '') {
+          spsply[key] = r[key]
+          hasSpecial = true
+        }
+      }
+
+      if (hasSpecial) row.spsply = spsply
+
+      item.houseTypes.push(row)
     }
 
-    const t = grouped[key].types[type]
+    const items = Array.from(grouped.values()).sort((a, b) =>
+      (b.rceptBgnde || '').localeCompare(a.rceptBgnde || '')
+    )
 
-    if(row.SUBSCRPT_RANK_CODE==1){
+    console.log('[competition] final items:', items.length)
+    console.log('[competition] sample:', items[0])
 
-      if(row.RESIDE_SECD=="01")
-        t.rank1Local += Number(row.REQ_CNT)
-
-      else
-        t.rank1Other += Number(row.REQ_CNT)
-
-    }
-
-    if(row.SUBSCRPT_RANK_CODE==2){
-
-      if(row.RESIDE_SECD=="01")
-        t.rank2Local += Number(row.REQ_CNT)
-
-      else
-        t.rank2Other += Number(row.REQ_CNT)
-
-    }
-
-  })
-
-  const items = Object.values(grouped)
-
-  return Response.json({
-    items
-  })
-
+    return NextResponse.json({ items })
+  } catch (error) {
+    console.error('[competition GET] error:', error)
+    return NextResponse.json({ items: [], error: String(error) })
+  }
 }
