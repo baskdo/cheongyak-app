@@ -23,28 +23,32 @@ export async function GET(request: Request) {
     const cmpetData = await cmpetRes.json()
     const cmpetItems: Record<string, string>[] = cmpetData?.data || []
 
-    // 공고번호 목록 추출
+    // 경쟁률에 나온 공고번호 목록
     const pblancNos = [...new Set(cmpetItems.map(i => i['PBLANC_NO']).filter(Boolean))]
 
-    // 2. 메인 공고 API에서 단지명/기간/주소 가져오기 (같은 페이지 기준)
-    const detailUrl = `${BASE_URL}/getAPTLttotPblancDetail?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=200&returnType=JSON`
-    const detailRes = await fetch(detailUrl, { next: { revalidate: 1800 } })
-    
-    // 공고번호 → 단지정보 맵
+    // 2. 공고 상세 API를 여러 페이지에서 검색해서 단지명 매칭
     const detailMap: Record<string, { name: string; address: string; rceptBgnde: string; rceptEndde: string }> = {}
-    if (detailRes.ok) {
-      const detailData = await detailRes.json()
-      const detailItems: Record<string, string>[] = detailData?.data || []
-      detailItems.forEach(d => {
-        const no = d['PBLANC_NO']
-        if (!no) return
-        detailMap[no] = {
-          name: d['HOUSE_NM'] || '',
-          address: d['HSSPLY_ADRES'] || '',
-          rceptBgnde: d['RCEPT_BGNDE'] || '',
-          rceptEndde: d['RCEPT_ENDDE'] || '',
-        }
-      })
+    
+    // 최근 5페이지까지 검색 (각 페이지 20건 = 100건)
+    for (let p = 1; p <= 5; p++) {
+      if (Object.keys(detailMap).length >= pblancNos.length) break
+      try {
+        const detailUrl = `${BASE_URL}/getAPTLttotPblancDetail?serviceKey=${encodeURIComponent(apiKey)}&page=${p}&perPage=20&returnType=JSON`
+        const detailRes = await fetch(detailUrl, { next: { revalidate: 1800 } })
+        if (!detailRes.ok) break
+        const detailData = await detailRes.json()
+        const detailItems: Record<string, string>[] = detailData?.data || []
+        detailItems.forEach(d => {
+          const no = d['PBLANC_NO']
+          if (!no) return
+          detailMap[no] = {
+            name: d['HOUSE_NM'] || '',
+            address: d['HSSPLY_ADRES'] || '',
+            rceptBgnde: d['RCEPT_BGNDE'] || '',
+            rceptEndde: d['RCEPT_ENDDE'] || '',
+          }
+        })
+      } catch(e) { break }
     }
 
     // 3. 경쟁률 데이터를 공고번호별로 그룹화
@@ -54,26 +58,18 @@ export async function GET(request: Request) {
       region: string
       rceptBgnde: string
       rceptEndde: string
-      houseTypes: {
-        type: string
-        rate: string
-        reqCnt: string
-        suply: string
-        rank: string
-        reside: string
-      }[]
+      houseTypes: { type: string; rate: string; reqCnt: string; suply: string; rank: string; reside: string }[]
     }> = {}
 
     cmpetItems.forEach((item) => {
       const no = item['PBLANC_NO'] || ''
       if (!no) return
-
       const detail = detailMap[no]
 
       if (!groupMap[no]) {
         groupMap[no] = {
           pblancNo: no,
-          houseName: detail?.name || `공고번호 ${no}`,
+          houseName: detail?.name || '',
           region: extractRegion(detail?.address || ''),
           rceptBgnde: detail?.rceptBgnde || '',
           rceptEndde: detail?.rceptEndde || '',
@@ -93,14 +89,8 @@ export async function GET(request: Request) {
 
     let results = Object.values(groupMap)
 
-    // 키워드 필터
-    if (keyword) {
-      results = results.filter(r => r.houseName.includes(keyword))
-    }
-    // 지역 필터
-    if (region && region !== '전체') {
-      results = results.filter(r => r.region === region)
-    }
+    if (keyword) results = results.filter(r => r.houseName.includes(keyword))
+    if (region && region !== '전체') results = results.filter(r => r.region === region)
 
     return NextResponse.json({ items: results, total: cmpetData?.totalCount || 0 })
   } catch (error) {
@@ -126,31 +116,16 @@ function getDummyData() {
   return {
     items: [
       {
-        pblancNo: 'D001',
-        houseName: '래미안 원베일리',
-        region: '서울',
-        rceptBgnde: '2025-06-10',
-        rceptEndde: '2025-06-12',
+        pblancNo: 'D001', houseName: '래미안 원베일리', region: '서울',
+        rceptBgnde: '2025-06-10', rceptEndde: '2025-06-12',
         houseTypes: [
           { type: '059.9900A', rate: '521', reqCnt: '12504', suply: '24', rank: '1', reside: '해당지역' },
           { type: '059.9900A', rate: '312', reqCnt: '7488', suply: '24', rank: '1', reside: '기타지역' },
           { type: '084.9800A', rate: '189', reqCnt: '2835', suply: '15', rank: '1', reside: '해당지역' },
-          { type: '084.9800A', rate: '95', reqCnt: '1425', suply: '15', rank: '2', reside: '해당지역' },
-        ],
-      },
-      {
-        pblancNo: 'D002',
-        houseName: '힐스테이트 동탄 레이크시티',
-        region: '경기',
-        rceptBgnde: '2025-04-20',
-        rceptEndde: '2025-04-22',
-        houseTypes: [
-          { type: '074.0000A', rate: '28', reqCnt: '1568', suply: '56', rank: '1', reside: '해당지역' },
-          { type: '084.9900A', rate: '(△5)', reqCnt: '0', suply: '70', rank: '1', reside: '해당지역' },
         ],
       },
     ],
-    total: 2,
+    total: 1,
     isDummy: true,
   }
 }
