@@ -15,6 +15,12 @@ type ApartmentItem = {
   pblancDe: string
   status: '접수예정' | '접수중' | '접수마감'
   hompageUrl: string
+  constructor: string
+  moveInDate: string
+  pdfUrl: string
+  minPrice: string
+  maxPrice: string
+  houseTypes: string
 }
 
 const REGIONS = ['전체', '서울', '경기', '인천', '부산', '대구', '광주', '대전', '울산', '세종', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
@@ -37,6 +43,19 @@ function formatDate(dateStr: string): string {
   const s = dateStr.replace(/-/g, '')
   if (s.length !== 8) return dateStr
   return `${parseInt(s.slice(4, 6))}월 ${parseInt(s.slice(6, 8))}일`
+}
+
+function formatPrice(price: string): string {
+  if (!price) return ''
+  const num = parseInt(price)
+  if (isNaN(num)) return price
+  if (num >= 10000) return `${(num / 10000).toFixed(1)}억`
+  return `${num.toLocaleString()}만원`
+}
+
+function formatMoveIn(ym: string): string {
+  if (!ym || ym.length < 6) return '-'
+  return `${ym.substring(0, 4)}년 ${parseInt(ym.substring(4, 6))}월`
 }
 
 function ApartmentCard({ item }: { item: ApartmentItem }) {
@@ -63,7 +82,23 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
           <span className="text-red-400">📍</span>
           {item.address}
         </p>
+        {item.constructor && (
+          <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+            <span>🏗</span> {item.constructor}
+          </p>
+        )}
       </div>
+
+      {/* 주택형 태그 */}
+      {item.houseTypes && (
+        <div className="flex flex-wrap gap-1">
+          {item.houseTypes.split(',').map((t, i) => (
+            <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">
+              {t.trim()}㎡
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="border-t border-gray-50 pt-3 space-y-1.5">
@@ -71,6 +106,16 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
           <span className="text-gray-500">공급규모</span>
           <span className="font-semibold text-gray-800">{parseInt(item.totalUnits).toLocaleString()}세대</span>
         </div>
+        {(item.minPrice || item.maxPrice) && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-500">분양가</span>
+            <span className="font-semibold text-orange-600">
+              {item.minPrice && item.maxPrice
+                ? `${formatPrice(item.minPrice)} ~ ${formatPrice(item.maxPrice)}`
+                : formatPrice(item.minPrice || item.maxPrice)}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">접수기간</span>
           <span className="font-semibold text-blue-600">
@@ -81,6 +126,12 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
           <span className="text-gray-500">당첨자발표</span>
           <span className="font-semibold text-red-500">{formatDate(item.przwnerPresnatnDe)}</span>
         </div>
+        {item.moveInDate && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-500">입주예정</span>
+            <span className="font-semibold text-purple-600">{formatMoveIn(item.moveInDate)}</span>
+          </div>
+        )}
       </div>
 
       {/* Action buttons */}
@@ -103,6 +154,17 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
         >
           <span className="text-lg">🏠</span>
         </a>
+        {item.pdfUrl && (
+          <a
+            href={item.pdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-9 h-9 rounded-full flex items-center justify-center bg-red-50 hover:bg-red-100 transition-colors"
+            title="모집공고 PDF"
+          >
+            <span className="text-lg">📄</span>
+          </a>
+        )}
         <a
           href={item.hompageUrl}
           target="_blank"
