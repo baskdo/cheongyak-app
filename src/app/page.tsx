@@ -239,8 +239,9 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 function CompetitionCard({ item }: { item: CompetitionItem }) {
   const [expanded, setExpanded] = useState(false)
 
+  // 주택형별 그룹화
   const typeGroups: Record<string, HouseTypeRate[]> = {}
-  item.houseTypes.forEach(h => {
+  item.houseTypes.forEach((h) => {
     const key = formatHouseType(h.type)
     if (!typeGroups[key]) typeGroups[key] = []
     typeGroups[key].push(h)
@@ -249,21 +250,78 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
   const typeKeys = Object.keys(typeGroups)
   const displayKeys = expanded ? typeKeys : typeKeys.slice(0, 2)
 
+  // 최고 경쟁률 (1순위 해당지역 기준)
   const maxRate = item.houseTypes
-    .filter(h => h.rank === '1' && h.reside === '해당지역')
+    .filter((h) => h.rank === '1' && h.reside === '해당지역')
     .reduce((max, h) => {
       const r = parseFloat(h.rate)
       return isNaN(r) ? max : Math.max(max, r)
     }, 0)
 
+  // ===== 요약 계산 =====
+
+  // 1순위
+  const rank1Rows = item.houseTypes.filter((h) => h.rank === '1')
+  const rank1TotalReq = rank1Rows.reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+  const rank1LocalReq = rank1Rows
+    .filter((h) => h.reside === '해당지역')
+    .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+  const rank1EtcReq = rank1Rows
+    .filter((h) => h.reside !== '해당지역')
+    .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+
+  // 2순위
+  const rank2Rows = item.houseTypes.filter((h) => h.rank === '2')
+  const rank2TotalReq = rank2Rows.reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+
+  // 특별공급 신청 합계 (기관추천/이전기관 제외)
+  const spsplyRow = item.houseTypes.find((h) => h.spsply)?.spsply
+  let specialTotalReq = 0
+
+  if (spsplyRow) {
+    const specialReqFields = [
+      'CRSPAREA_MNYCH_CNT',
+      'CRSPAREA_NWWDS_NMTW_CNT',
+      'CRSPAREA_LFE_FRST_CNT',
+      'CRSPAREA_NWBB_NWBBSHR_CNT',
+      'CRSPAREA_YGMN_CNT',
+      'CRSPAREA_OPS_CNT',
+    ]
+
+    specialTotalReq = specialReqFields.reduce((sum, field) => {
+      return sum + parseInt(spsplyRow[field] || '0', 10)
+    }, 0)
+  }
+
+  // 대표 주택형: 1순위 해당지역이 있는 주택형 우선, 없으면 첫 번째
+  const representativeTypeRow =
+    item.houseTypes.find((h) => h.rank === '1' && h.reside === '해당지역') ||
+    item.houseTypes.find((h) => h.rank === '1') ||
+    item.houseTypes[0]
+
+  const representativeTypeName = representativeTypeRow
+    ? formatHouseType(representativeTypeRow.type)
+    : '-'
+  const representativeSupply = representativeTypeRow
+    ? parseInt(representativeTypeRow.suply || '0', 10)
+    : 0
+  const representativeReq = representativeTypeRow
+    ? parseInt(representativeTypeRow.reqCnt || '0', 10)
+    : 0
+
   const rankLabel: Record<string, string> = {
-    '1': '1순위', '2': '2순위', '3': '특별공급',
+    '1': '1순위',
+    '2': '2순위',
+    '3': '특별공급',
   }
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover flex flex-col gap-3">
+      {/* 헤더 */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">APT</span>
+        <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">
+          APT
+        </span>
         {(item.rceptBgnde || item.rceptEndde) && (
           <span className="text-xs text-gray-400">
             {formatDate(item.rceptBgnde)} ~ {formatDate(item.rceptEndde)}
@@ -271,29 +329,68 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         )}
       </div>
 
+      {/* 단지명 */}
       <div>
-        <h3 className="font-bold text-gray-900 text-base leading-snug">{item.houseName}</h3>
-        <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-          <span className="text-red-400">📍</span>{item.region}
-        </p>
+        <h3 className="font-bold text-gray-900 text-base leading-snug">
+          {item.houseName}
+        </h3>
       </div>
 
+      {/* 요약 블록 */}
+      <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 space-y-1.5 leading-relaxed">
+        <div>
+          특공 (접수) <span className="font-bold">{specialTotalReq.toLocaleString()}건</span>
+          <span className="text-gray-400 ml-1">(기관/이전 제외)</span>
+        </div>
+
+        <div>
+          1순위 (접수) <span className="font-bold">{rank1TotalReq.toLocaleString()}건</span>
+          <span className="text-gray-400 ml-1">(해당/기타 합계)</span>
+        </div>
+
+        <div className="text-gray-500 text-xs">
+          -해당: {rank1LocalReq.toLocaleString()}건 / 기타: {rank1EtcReq.toLocaleString()}건
+        </div>
+
+        <div>
+          2순위 (접수) <span className="font-bold">{rank2TotalReq.toLocaleString()}건</span>
+        </div>
+
+        <div className="pt-1 text-gray-800">
+          {representativeTypeName}㎡ (공급:{representativeSupply.toLocaleString()}/신청:{representativeReq.toLocaleString()})건
+        </div>
+      </div>
+
+      {/* 지역 */}
+      <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+        <span className="text-red-400">📍</span>
+        {item.region}
+      </p>
+
+      {/* 최고 경쟁률 */}
       {maxRate > 0 && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">최고경쟁률</span>
-          <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${
-            maxRate >= 100 ? 'bg-red-100 text-red-600' :
-            maxRate >= 10 ? 'bg-orange-100 text-orange-600' :
-            'bg-yellow-100 text-yellow-600'}`}>
+          <span
+            className={`text-sm font-bold px-2 py-0.5 rounded-full ${
+              maxRate >= 100
+                ? 'bg-red-100 text-red-600'
+                : maxRate >= 10
+                  ? 'bg-orange-100 text-orange-600'
+                  : 'bg-yellow-100 text-yellow-600'
+            }`}
+          >
             {maxRate} : 1
           </span>
           <span className="text-xs text-gray-400">(1순위 해당지역)</span>
         </div>
       )}
 
+      {/* 주택형별 경쟁률 */}
       <div className="border-t border-gray-50 pt-3 space-y-3">
         {displayKeys.map((typeKey) => {
           const rows = typeGroups[typeKey]
+
           return (
             <div key={typeKey} className="bg-gray-50 rounded-xl p-3">
               <p className="text-sm font-bold text-blue-600 mb-2">{typeKey}㎡</p>
@@ -303,22 +400,36 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
                   <span className="text-center">공급/신청</span>
                   <span className="text-right">경쟁률</span>
                 </div>
+
                 {rows.map((h, i) => {
                   const { label, isDeficit } = formatRate(h.rate)
                   const isEmpty = h.rate === '-'
+
                   return (
-                    <div key={i} className="grid grid-cols-3 items-center text-xs bg-white rounded-lg px-2 py-1.5">
+                    <div
+                      key={i}
+                      className="grid grid-cols-3 items-center text-xs bg-white rounded-lg px-2 py-1.5"
+                    >
                       <span className="text-gray-500">
                         {rankLabel[h.rank] || h.rank}
-                        <span className="text-gray-400 ml-1">({h.reside === '해당지역' ? '해당' : '기타'})</span>
+                        <span className="text-gray-400 ml-1">
+                          ({h.reside === '해당지역' ? '해당' : '기타'})
+                        </span>
                       </span>
+
                       <span className="text-center text-gray-500">
-                        {parseInt(h.suply).toLocaleString()} / {parseInt(h.reqCnt).toLocaleString()}
+                        {parseInt(h.suply || '0', 10).toLocaleString()} / {parseInt(h.reqCnt || '0', 10).toLocaleString()}
                       </span>
-                      <span className={`text-right font-semibold ${
-                        isEmpty ? 'text-gray-300' :
-                        isDeficit ? 'text-gray-400' :
-                        'text-rose-600'}`}>
+
+                      <span
+                        className={`text-right font-semibold ${
+                          isEmpty
+                            ? 'text-gray-300'
+                            : isDeficit
+                              ? 'text-gray-400'
+                              : 'text-rose-600'
+                        }`}
+                      >
                         {isEmpty ? '-' : label}
                       </span>
                     </div>
@@ -330,9 +441,11 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         })}
       </div>
 
+      {/* 특별공급 상세 */}
       {(() => {
-        const spsplyRow = item.houseTypes.find(h => h.spsply)?.spsply
+        const spsplyRow = item.houseTypes.find((h) => h.spsply)?.spsply
         if (!spsplyRow) return null
+
         const spsplyTypes = [
           { label: '다자녀', suply: 'MNYCH_HSHLDCO', cnt: 'CRSPAREA_MNYCH_CNT' },
           { label: '신혼부부', suply: 'NWWDS_NMTW_HSHLDCO', cnt: 'CRSPAREA_NWWDS_NMTW_CNT' },
@@ -340,7 +453,7 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
           { label: '신생아', suply: 'NWBB_NWBBSHR_HSHLDCO', cnt: 'CRSPAREA_NWBB_NWBBSHR_CNT' },
           { label: '청년', suply: 'YGMN_HSHLDCO', cnt: 'CRSPAREA_YGMN_CNT' },
           { label: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', cnt: 'CRSPAREA_OPS_CNT' },
-        ].filter(s => parseInt(spsplyRow[s.suply] || '0') > 0)
+        ].filter((s) => parseInt(spsplyRow[s.suply] || '0', 10) > 0)
 
         if (spsplyTypes.length === 0) return null
 
@@ -349,10 +462,13 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
             <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 신청현황</p>
             <div className="grid grid-cols-2 gap-1">
               {spsplyTypes.map((s, i) => (
-                <div key={i} className="bg-blue-50 rounded-lg px-2 py-1.5 flex justify-between items-center">
+                <div
+                  key={i}
+                  className="bg-blue-50 rounded-lg px-2 py-1.5 flex justify-between items-center"
+                >
                   <span className="text-xs text-gray-600">{s.label}</span>
                   <span className="text-xs font-semibold text-blue-700">
-                    {parseInt(spsplyRow[s.cnt] || '0')} / {parseInt(spsplyRow[s.suply] || '0')}
+                    {parseInt(spsplyRow[s.cnt] || '0', 10).toLocaleString()} / {parseInt(spsplyRow[s.suply] || '0', 10).toLocaleString()}
                   </span>
                 </div>
               ))}
@@ -362,15 +478,16 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
       })()}
 
       {typeKeys.length > 2 && (
-        <button onClick={() => setExpanded(!expanded)}
-          className="w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1"
+        >
           {expanded ? '접기 ▲' : `+${typeKeys.length - 2}개 주택형 더보기 ▼`}
         </button>
       )}
     </div>
   )
 }
-
 // ===================== 스켈레톤 =====================
 function SkeletonCard() {
   return (
