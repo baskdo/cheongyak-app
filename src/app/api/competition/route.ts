@@ -37,10 +37,8 @@ export async function GET(request: Request) {
 
   const keyword = (searchParams.get('keyword') || '').trim()
   const region = (searchParams.get('region') || '').trim()
-  const page = Number(searchParams.get('page') || '1')
-  const perPage = Number(searchParams.get('perPage') || '300')
 
-  // page.tsx에서 전달하는 월 단위 조회범위
+  // 프론트에서 전달하는 월 단위 범위
   const yearMonthFrom = (searchParams.get('yearMonthFrom') || '').trim()
   const yearMonthTo = (searchParams.get('yearMonthTo') || '').trim()
 
@@ -55,27 +53,11 @@ export async function GET(request: Request) {
     const enc2 = encodeURIComponent(apiKey2)
     const enc1 = apiKey1 ? encodeURIComponent(apiKey1) : ''
 
-    const [cmpetRes, spsplyRes] = await Promise.all([
-      fetch(
-        `${CMPET_SVC}/getAPTLttotPblancCmpet?serviceKey=${enc2}&page=${page}&perPage=${perPage}&returnType=JSON`,
-        { next: { revalidate: 900 } }
-      ),
-      fetch(
-        `${CMPET_SVC}/getAPTSpsplyReqstStus?serviceKey=${enc2}&page=${page}&perPage=${perPage}&returnType=JSON`,
-        { next: { revalidate: 900 } }
-      ),
-    ])
+    // 1) 경쟁률 / 특별공급 전체 페이지 수집
+    const cmpetItems = await fetchAllCmpetItems(enc2, yearMonthFrom, yearMonthTo)
+    const spsplyItems = await fetchAllSpsplyItems(enc2, yearMonthFrom, yearMonthTo)
 
-    if (!cmpetRes.ok) {
-      return NextResponse.json(getDummyData())
-    }
-
-    const cmpetData = await cmpetRes.json()
-    const spsplyData = spsplyRes.ok ? await spsplyRes.json() : null
-
-    const cmpetItems: Row[] = Array.isArray(cmpetData?.data) ? cmpetData.data : []
-    const spsplyItems: Row[] = Array.isArray(spsplyData?.data) ? spsplyData.data : []
-
+    // 공고번호 목록
     const pblancNos = Array.from(
       new Set(
         cmpetItems
@@ -84,9 +66,11 @@ export async function GET(request: Request) {
       )
     )
 
+    // 2) 상세 API에서 공고번호 기준으로 단지명/주소/기간 보강
     const detailMap: Record<string, DetailInfo> =
       enc1 && pblancNos.length > 0 ? await fetchDetailMap(enc1, pblancNos) : {}
 
+    // 3) 특별공급 맵
     const spsplyMap: Record<string, Row> = {}
     spsplyItems.forEach((item) => {
       const no = (item['PBLANC_NO'] || '').trim()
@@ -95,6 +79,7 @@ export async function GET(request: Request) {
       spsplyMap[`${no}_${houseTy}`] = item
     })
 
+    // 4) 그룹화
     const groupMap: Record<string, GroupItem> = {}
 
     cmpetItems.forEach((item) => {
@@ -136,12 +121,11 @@ export async function GET(request: Request) {
 
     let results = Object.values(groupMap)
 
-    // 1) 월 단위 기간 필터
+    // 5) 상세 기간 기준 월 필터 재적용
     if (yearMonthFrom || yearMonthTo) {
       results = results.filter((r) => {
         const bg = normalizeYearMonth(r.rceptBgnde)
         const ed = normalizeYearMonth(r.rceptEndde)
-
         if (!bg || !ed) return false
 
         const from = yearMonthFrom || bg
@@ -151,17 +135,16 @@ export async function GET(request: Request) {
       })
     }
 
-    // 2) 키워드 필터
+    // 6) 키워드 / 지역 필터
     if (keyword) {
       results = results.filter((r) => r.houseName.includes(keyword))
     }
 
-    // 3) 지역 필터
     if (region && region !== '전체') {
       results = results.filter((r) => normalizeRegion(r.region) === normalizeRegion(region))
     }
 
-    // 4) 최신 접수일 기준 내림차순
+    // 7) 최신 순 정렬
     results.sort((a, b) => {
       const aDate = normalizeDate(a.rceptBgnde)
       const bDate = normalizeDate(b.rceptBgnde)
@@ -178,6 +161,115 @@ export async function GET(request: Request) {
   }
 }
 
+async function fetchAllCmpetItems(
+  encServiceKey: string,
+  yearMonthFrom: string,
+  yearMonthTo: string
+): Promise<Row[]> {
+  const allItems: Row[] = []
+  const perPage = 300
+  const maxPages = 30
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetch(
+      `${CMPET_SVC}/getAPTLttotPblancCmpet?serviceKey=${encServiceKey}&page=${page}&perPage=${perPage}&returnType=JSON`,
+      { next: { revalidate: 900 } }
+    )
+
+    if (!res.ok) break
+
+    const json = await res.json()
+    const items: Row[] = Array.isArray(json?.data) ? json.data : []
+
+    if (items.length === 0) break
+
+    allItems.push(...items)
+
+    // 마지막 페이지면 종료
+    if (items.length < perPage) break
+  }
+
+  return filterCmpetRowsByMonthWindow(allItems, yearMonthFrom, yearMonthTo)
+}
+
+async function fetchAllSpsplyItems(
+  encServiceKey: string,
+  yearMonthFrom: string,
+  yearMonthTo: string
+): Promise<Row[]> {
+  const allItems: Row[] = []
+  const perPage = 300
+  const maxPages = 30
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetch(
+      `${CMPET_SVC}/getAPTSpsplyReqstStus?serviceKey=${encServiceKey}&page=${page}&perPage=${perPage}&returnType=JSON`,
+      { next: { revalidate: 900 } }
+    )
+
+    if (!res.ok) break
+
+    const json = await res.json()
+    const items: Row[] = Array.isArray(json?.data) ? json.data : []
+
+    if (items.length === 0) break
+
+    allItems.push(...items)
+
+    if (items.length < perPage) break
+  }
+
+  return filterSpsplyRowsByMonthWindow(allItems, yearMonthFrom, yearMonthTo)
+}
+
+function filterCmpetRowsByMonthWindow(
+  rows: Row[],
+  yearMonthFrom: string,
+  yearMonthTo: string
+): Row[] {
+  if (!yearMonthFrom && !yearMonthTo) return rows
+
+  return rows.filter((row) => {
+    const ym = normalizeYearMonth(
+      row['RCEPT_BGNDE'] ||
+      row['RCEPT_ENDDE'] ||
+      row['PBLANC_DE'] ||
+      ''
+    )
+
+    if (!ym) return true
+
+    const from = yearMonthFrom || ym
+    const to = yearMonthTo || ym
+
+    return from <= ym && ym <= to
+  })
+}
+
+function filterSpsplyRowsByMonthWindow(
+  rows: Row[],
+  yearMonthFrom: string,
+  yearMonthTo: string
+): Row[] {
+  if (!yearMonthFrom && !yearMonthTo) return rows
+
+  return rows.filter((row) => {
+    const ym = normalizeYearMonth(
+      row['RCEPT_BGNDE'] ||
+      row['RCEPT_ENDDE'] ||
+      row['PBLANC_DE'] ||
+      ''
+    )
+
+    if (!ym) return true
+
+    const from = yearMonthFrom || ym
+    const to = yearMonthTo || ym
+
+    return from <= ym && ym <= to
+  })
+}
+
 async function fetchDetailMap(
   encServiceKey: string,
   targetPblancNos: string[]
@@ -187,7 +279,7 @@ async function fetchDetailMap(
 
   let currentPage = 1
   const perPage = 500
-  const maxPages = 20
+  const maxPages = 30
 
   while (currentPage <= maxPages) {
     const res = await fetch(
