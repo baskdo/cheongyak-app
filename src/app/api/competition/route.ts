@@ -38,10 +38,11 @@ export async function GET(request: Request) {
   const keyword = (searchParams.get('keyword') || '').trim()
   const region = (searchParams.get('region') || '').trim()
   const page = Number(searchParams.get('page') || '1')
-  const perPage = Number(searchParams.get('perPage') || '200')
-  const samePeriod = searchParams.get('samePeriod') === 'true'
-  const startDate = (searchParams.get('startDate') || '').trim()
-  const endDate = (searchParams.get('endDate') || '').trim()
+  const perPage = Number(searchParams.get('perPage') || '300')
+
+  // page.tsx에서 전달하는 월 단위 조회범위
+  const yearMonthFrom = (searchParams.get('yearMonthFrom') || '').trim()
+  const yearMonthTo = (searchParams.get('yearMonthTo') || '').trim()
 
   const apiKey2 = process.env.API_KEY2
   const apiKey1 = process.env.API_KEY
@@ -54,7 +55,6 @@ export async function GET(request: Request) {
     const enc2 = encodeURIComponent(apiKey2)
     const enc1 = apiKey1 ? encodeURIComponent(apiKey1) : ''
 
-    // 1) 실시간 경쟁률 + 특별공급 신청현황
     const [cmpetRes, spsplyRes] = await Promise.all([
       fetch(
         `${CMPET_SVC}/getAPTLttotPblancCmpet?serviceKey=${enc2}&page=${page}&perPage=${perPage}&returnType=JSON`,
@@ -76,7 +76,6 @@ export async function GET(request: Request) {
     const cmpetItems: Row[] = Array.isArray(cmpetData?.data) ? cmpetData.data : []
     const spsplyItems: Row[] = Array.isArray(spsplyData?.data) ? spsplyData.data : []
 
-    // Set 스프레드 대신 Array.from 사용
     const pblancNos = Array.from(
       new Set(
         cmpetItems
@@ -85,11 +84,9 @@ export async function GET(request: Request) {
       )
     )
 
-    // 2) 상세 API 조회해서 단지명/주소/기간 보강
     const detailMap: Record<string, DetailInfo> =
       enc1 && pblancNos.length > 0 ? await fetchDetailMap(enc1, pblancNos) : {}
 
-    // 3) 특별공급 데이터 맵핑 (공고번호 + 주택형)
     const spsplyMap: Record<string, Row> = {}
     spsplyItems.forEach((item) => {
       const no = (item['PBLANC_NO'] || '').trim()
@@ -98,7 +95,6 @@ export async function GET(request: Request) {
       spsplyMap[`${no}_${houseTy}`] = item
     })
 
-    // 4) 경쟁률 데이터 그룹화
     const groupMap: Record<string, GroupItem> = {}
 
     cmpetItems.forEach((item) => {
@@ -140,59 +136,37 @@ export async function GET(request: Request) {
 
     let results = Object.values(groupMap)
 
+    // 1) 월 단위 기간 필터
+    if (yearMonthFrom || yearMonthTo) {
+      results = results.filter((r) => {
+        const bg = normalizeYearMonth(r.rceptBgnde)
+        const ed = normalizeYearMonth(r.rceptEndde)
+
+        if (!bg || !ed) return false
+
+        const from = yearMonthFrom || bg
+        const to = yearMonthTo || ed
+
+        return isMonthOverlapped(bg, ed, from, to)
+      })
+    }
+
+    // 2) 키워드 필터
     if (keyword) {
       results = results.filter((r) => r.houseName.includes(keyword))
     }
 
+    // 3) 지역 필터
     if (region && region !== '전체') {
       results = results.filter((r) => normalizeRegion(r.region) === normalizeRegion(region))
     }
 
-    // 명시적 기간 필터
-    if (startDate || endDate) {
-      results = results.filter((r) => {
-        const bg = normalizeDate(r.rceptBgnde)
-        const ed = normalizeDate(r.rceptEndde)
-
-        if (!bg || !ed) return false
-
-        if (startDate && endDate) {
-          return isOverlapped(bg, ed, normalizeDate(startDate), normalizeDate(endDate))
-        }
-
-        if (startDate) {
-          return isDateInRange(normalizeDate(startDate), bg, ed)
-        }
-
-        if (endDate) {
-          return isDateInRange(normalizeDate(endDate), bg, ed)
-        }
-
-        return true
-      })
-    }
-
-    // 같은 시기 단지 자동 확장
-    if (samePeriod && results.length > 0) {
-      const base = results.find((r) => r.rceptBgnde && r.rceptEndde)
-
-      if (base) {
-        const baseStart = normalizeDate(base.rceptBgnde)
-        const baseEnd = normalizeDate(base.rceptEndde)
-
-        results = Object.values(groupMap).filter((r) => {
-          const bg = normalizeDate(r.rceptBgnde)
-          const ed = normalizeDate(r.rceptEndde)
-
-          const matchedRegion =
-            !region || region === '전체'
-              ? true
-              : normalizeRegion(r.region) === normalizeRegion(region)
-
-          return matchedRegion && isOverlapped(bg, ed, baseStart, baseEnd)
-        })
-      }
-    }
+    // 4) 최신 접수일 기준 내림차순
+    results.sort((a, b) => {
+      const aDate = normalizeDate(a.rceptBgnde)
+      const bDate = normalizeDate(b.rceptBgnde)
+      return bDate.localeCompare(aDate)
+    })
 
     return NextResponse.json({
       items: results,
@@ -295,12 +269,14 @@ function normalizeDate(value: string): string {
   return `${onlyNum.slice(0, 4)}-${onlyNum.slice(4, 6)}-${onlyNum.slice(6, 8)}`
 }
 
-function isDateInRange(target: string, start: string, end: string): boolean {
-  if (!target || !start || !end) return false
-  return start <= target && target <= end
+function normalizeYearMonth(value: string): string {
+  if (!value) return ''
+  const onlyNum = value.replace(/[^\d]/g, '')
+  if (onlyNum.length < 6) return ''
+  return `${onlyNum.slice(0, 4)}-${onlyNum.slice(4, 6)}`
 }
 
-function isOverlapped(start1: string, end1: string, start2: string, end2: string): boolean {
+function isMonthOverlapped(start1: string, end1: string, start2: string, end2: string): boolean {
   if (!start1 || !end1 || !start2 || !end2) return false
   return start1 <= end2 && start2 <= end1
 }

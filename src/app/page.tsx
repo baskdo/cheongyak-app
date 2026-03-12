@@ -94,10 +94,53 @@ function formatHouseType(typeStr: string): string {
 function formatRate(rate: string): { label: string; isDeficit: boolean } {
   if (!rate) return { label: '-', isDeficit: false }
   const isDeficit = rate.includes('△')
+  if (rate === '-') return { label: '-', isDeficit: false }
   return {
     label: isDeficit ? `미달 ${rate}` : `${rate} : 1`,
     isDeficit,
   }
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+function getRecent1YearRange(baseDate = new Date()) {
+  const year = baseDate.getFullYear()
+  const month = baseDate.getMonth() + 1
+
+  let fromYear = year
+  let fromMonth = month + 1
+
+  if (fromMonth === 13) {
+    fromYear += 1
+    fromMonth = 1
+  }
+
+  fromYear -= 1
+
+  return {
+    from: `${fromYear}-${pad2(fromMonth)}`,
+    to: `${year}-${pad2(month)}`,
+  }
+}
+
+function getYearRange(year: number) {
+  return {
+    from: `${year}-01`,
+    to: `${year}-12`,
+  }
+}
+
+function getFixedYearButtons() {
+  return [2021, 2022, 2023, 2024, 2025, 2026]
+}
+
+function formatYm(ym: string) {
+  if (!ym) return '-'
+  const [y, m] = ym.split('-')
+  if (!y || !m) return ym
+  return `${y}년 ${m}월`
 }
 
 // ===================== 청약공고 카드 =====================
@@ -196,7 +239,6 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 function CompetitionCard({ item }: { item: CompetitionItem }) {
   const [expanded, setExpanded] = useState(false)
 
-  // 주택형별로 그룹화
   const typeGroups: Record<string, HouseTypeRate[]> = {}
   item.houseTypes.forEach(h => {
     const key = formatHouseType(h.type)
@@ -207,7 +249,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
   const typeKeys = Object.keys(typeGroups)
   const displayKeys = expanded ? typeKeys : typeKeys.slice(0, 2)
 
-  // 최고 경쟁률 (1순위 해당지역)
   const maxRate = item.houseTypes
     .filter(h => h.rank === '1' && h.reside === '해당지역')
     .reduce((max, h) => {
@@ -221,7 +262,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover flex flex-col gap-3">
-      {/* 헤더 */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">APT</span>
         {(item.rceptBgnde || item.rceptEndde) && (
@@ -231,7 +271,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         )}
       </div>
 
-      {/* 단지명 */}
       <div>
         <h3 className="font-bold text-gray-900 text-base leading-snug">{item.houseName}</h3>
         <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
@@ -239,7 +278,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         </p>
       </div>
 
-      {/* 최고 경쟁률 배지 */}
       {maxRate > 0 && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">최고경쟁률</span>
@@ -253,7 +291,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         </div>
       )}
 
-      {/* 주택형별 경쟁률 테이블 */}
       <div className="border-t border-gray-50 pt-3 space-y-3">
         {displayKeys.map((typeKey) => {
           const rows = typeGroups[typeKey]
@@ -261,7 +298,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
             <div key={typeKey} className="bg-gray-50 rounded-xl p-3">
               <p className="text-sm font-bold text-blue-600 mb-2">{typeKey}㎡</p>
               <div className="space-y-1">
-                {/* 헤더 */}
                 <div className="grid grid-cols-3 text-xs text-gray-400 px-1 mb-1">
                   <span>구분</span>
                   <span className="text-center">공급/신청</span>
@@ -294,7 +330,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         })}
       </div>
 
-      {/* 특별공급 현황 */}
       {(() => {
         const spsplyRow = item.houseTypes.find(h => h.spsply)?.spsply
         if (!spsplyRow) return null
@@ -306,7 +341,9 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
           { label: '청년', suply: 'YGMN_HSHLDCO', cnt: 'CRSPAREA_YGMN_CNT' },
           { label: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', cnt: 'CRSPAREA_OPS_CNT' },
         ].filter(s => parseInt(spsplyRow[s.suply] || '0') > 0)
+
         if (spsplyTypes.length === 0) return null
+
         return (
           <div className="border-t border-blue-50 pt-3">
             <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 신청현황</p>
@@ -378,6 +415,13 @@ export default function Home() {
   const [searchInput, setSearchInput] = useState('')
   const [cmpetRegion, setCmpetRegion] = useState('전체')
 
+  // 기간 필터 상태
+  const [periodKey, setPeriodKey] = useState('recent1y')
+  const [yearMonthFrom, setYearMonthFrom] = useState('')
+  const [yearMonthTo, setYearMonthTo] = useState('')
+
+  const yearButtons = getFixedYearButtons()
+
   const fetchNotice = useCallback(async () => {
     setLoading(true)
     try {
@@ -392,12 +436,20 @@ export default function Home() {
     }
   }, [])
 
-  const fetchCompetition = useCallback(async (kw = '', region = '전체') => {
+  const fetchCompetition = useCallback(async (
+    kw = '',
+    region = '전체',
+    ymFrom = '',
+    ymTo = ''
+  ) => {
     setCmpetLoading(true)
     try {
       const params = new URLSearchParams()
       if (kw) params.set('keyword', kw)
       if (region !== '전체') params.set('region', region)
+      if (ymFrom) params.set('yearMonthFrom', ymFrom)
+      if (ymTo) params.set('yearMonthTo', ymTo)
+
       const res = await fetch(`/api/competition?${params.toString()}`)
       const data = await res.json()
       setCmpetItems(data.items || [])
@@ -414,10 +466,16 @@ export default function Home() {
   }, [fetchNotice])
 
   useEffect(() => {
-    if (activeTab === 'competition' && !cmpetLoaded) {
-      fetchCompetition()
+    const range = getRecent1YearRange(new Date())
+    setYearMonthFrom(range.from)
+    setYearMonthTo(range.to)
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'competition' && !cmpetLoaded && yearMonthFrom && yearMonthTo) {
+      fetchCompetition('', '전체', yearMonthFrom, yearMonthTo)
     }
-  }, [activeTab, cmpetLoaded, fetchCompetition])
+  }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo])
 
   const filteredNotice = items.filter(item => {
     const regionMatch = selectedRegion === '전체' || item.region === selectedRegion
@@ -433,7 +491,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen pb-16">
-      {/* Header */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -441,14 +498,17 @@ export default function Home() {
             <span className="font-bold text-lg text-gray-900">청약홈 간략조회_MarU</span>
           </div>
           <button
-            onClick={() => activeTab === 'notice' ? fetchNotice() : fetchCompetition(keyword, cmpetRegion)}
+            onClick={() =>
+              activeTab === 'notice'
+                ? fetchNotice()
+                : fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo)
+            }
             className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
           >
             🔄 새로고침
           </button>
         </div>
 
-        {/* 탭 */}
         <div className="max-w-5xl mx-auto px-4 flex gap-0 border-t border-gray-100">
           <button
             onClick={() => setActiveTab('notice')}
@@ -475,7 +535,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* ===== 청약공고 탭 ===== */}
         {activeTab === 'notice' && (
           <>
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-3">
@@ -522,11 +581,9 @@ export default function Home() {
           </>
         )}
 
-        {/* ===== 경쟁률 탭 ===== */}
         {activeTab === 'competition' && (
           <>
-            {/* 검색 + 필터 */}
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-3">
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-4">
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -535,36 +592,88 @@ export default function Home() {
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
                       setKeyword(searchInput)
-                      fetchCompetition(searchInput, cmpetRegion)
+                      fetchCompetition(searchInput, cmpetRegion, yearMonthFrom, yearMonthTo)
                     }
                   }}
                   placeholder="단지명 검색 (예: 래미안, 힐스테이트...)"
                   className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-400"
                 />
                 <button
-                  onClick={() => { setKeyword(searchInput); fetchCompetition(searchInput, cmpetRegion) }}
+                  onClick={() => {
+                    setKeyword(searchInput)
+                    fetchCompetition(searchInput, cmpetRegion, yearMonthFrom, yearMonthTo)
+                  }}
                   className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
                 >
                   검색
                 </button>
               </div>
+
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2">📍 지역 필터</p>
                 <div className="flex flex-wrap gap-2">
                   {REGIONS.map(r => (
-                    <button key={r}
-                      onClick={() => { setCmpetRegion(r); fetchCompetition(keyword, r) }}
-                      className={`filter-btn ${cmpetRegion === r ? 'filter-btn-active' : 'filter-btn-inactive'}`}>
+                    <button
+                      key={r}
+                      onClick={() => {
+                        setCmpetRegion(r)
+                        fetchCompetition(keyword, r, yearMonthFrom, yearMonthTo)
+                      }}
+                      className={`filter-btn ${cmpetRegion === r ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                    >
                       {r}
                     </button>
                   ))}
                 </div>
               </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-2">🗓 기간 필터</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      const range = getRecent1YearRange(new Date())
+                      setPeriodKey('recent1y')
+                      setYearMonthFrom(range.from)
+                      setYearMonthTo(range.to)
+                      fetchCompetition(keyword, cmpetRegion, range.from, range.to)
+                    }}
+                    className={`filter-btn ${periodKey === 'recent1y' ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                  >
+                    최근 1년
+                  </button>
+
+                  {yearButtons.map(year => {
+                    const key = String(year)
+                    return (
+                      <button
+                        key={year}
+                        onClick={() => {
+                          const range = getYearRange(year)
+                          setPeriodKey(key)
+                          setYearMonthFrom(range.from)
+                          setYearMonthTo(range.to)
+                          fetchCompetition(keyword, cmpetRegion, range.from, range.to)
+                        }}
+                        className={`filter-btn ${periodKey === key ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                      >
+                        {year}년
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <p className="text-xs text-gray-400 mt-2">
+                  조회 범위: <span className="font-semibold text-gray-600">{formatYm(yearMonthFrom)}</span>
+                  {' '}~{' '}
+                  <span className="font-semibold text-gray-600">{formatYm(yearMonthTo)}</span>
+                </p>
+              </div>
             </div>
 
             <p className="text-sm text-gray-500 mb-4">
               총 <span className="font-bold text-blue-600">{filteredCmpet.length}건</span>의 경쟁률 데이터
-              <span className="text-xs text-gray-400 ml-2">(1순위 해당지역 기준)</span>
+              <span className="text-xs text-gray-400 ml-2">(1순위 해당지역 기준 / {formatYm(yearMonthFrom)} ~ {formatYm(yearMonthTo)})</span>
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
