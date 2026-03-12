@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+const BASE_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1'
 const CMPET_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoCmpetRtSvc/v1'
 
 export async function GET(request: Request) {
@@ -14,41 +15,69 @@ export async function GET(request: Request) {
   }
 
   try {
-    const url = `${CMPET_URL}/getAPTLttotPblancCmpet?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=100&returnType=JSON`
-    const res = await fetch(url, { next: { revalidate: 1800 } })
+    // 1. 경쟁률 데이터 가져오기
+    const cmpetUrl = `${CMPET_URL}/getAPTLttotPblancCmpet?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=200&returnType=JSON`
+    const cmpetRes = await fetch(cmpetUrl, { next: { revalidate: 1800 } })
+    if (!cmpetRes.ok) return NextResponse.json(getDummyData())
 
-    if (!res.ok) {
-      console.error('competition API error:', res.status)
-      return NextResponse.json(getDummyData())
+    const cmpetData = await cmpetRes.json()
+    const cmpetItems: Record<string, string>[] = cmpetData?.data || []
+
+    // 공고번호 목록 추출
+    const pblancNos = [...new Set(cmpetItems.map(i => i['PBLANC_NO']).filter(Boolean))]
+
+    // 2. 메인 공고 API에서 단지명/기간/주소 가져오기 (같은 페이지 기준)
+    const detailUrl = `${BASE_URL}/getAPTLttotPblancDetail?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=200&returnType=JSON`
+    const detailRes = await fetch(detailUrl, { next: { revalidate: 1800 } })
+    
+    // 공고번호 → 단지정보 맵
+    const detailMap: Record<string, { name: string; address: string; rceptBgnde: string; rceptEndde: string }> = {}
+    if (detailRes.ok) {
+      const detailData = await detailRes.json()
+      const detailItems: Record<string, string>[] = detailData?.data || []
+      detailItems.forEach(d => {
+        const no = d['PBLANC_NO']
+        if (!no) return
+        detailMap[no] = {
+          name: d['HOUSE_NM'] || '',
+          address: d['HSSPLY_ADRES'] || '',
+          rceptBgnde: d['RCEPT_BGNDE'] || '',
+          rceptEndde: d['RCEPT_ENDDE'] || '',
+        }
+      })
     }
 
-    const data = await res.json()
-    const items: Record<string, string>[] = data?.data || []
-
-    // 공고번호별로 그룹화
+    // 3. 경쟁률 데이터를 공고번호별로 그룹화
     const groupMap: Record<string, {
       pblancNo: string
       houseName: string
-      houseTypes: { type: string; rate: string; reqCnt: string; suply: string; rank: string; reside: string }[]
       region: string
       rceptBgnde: string
       rceptEndde: string
+      houseTypes: {
+        type: string
+        rate: string
+        reqCnt: string
+        suply: string
+        rank: string
+        reside: string
+      }[]
     }> = {}
 
-    items.forEach((item) => {
+    cmpetItems.forEach((item) => {
       const no = item['PBLANC_NO'] || ''
-      const houseName = item['HOUSE_NM'] || ''
-      const addr = item['HSSPLY_ADRES'] || ''
       if (!no) return
+
+      const detail = detailMap[no]
 
       if (!groupMap[no]) {
         groupMap[no] = {
           pblancNo: no,
-          houseName,
+          houseName: detail?.name || `공고번호 ${no}`,
+          region: extractRegion(detail?.address || ''),
+          rceptBgnde: detail?.rceptBgnde || '',
+          rceptEndde: detail?.rceptEndde || '',
           houseTypes: [],
-          region: extractRegion(addr),
-          rceptBgnde: item['RCEPT_BGNDE'] || '',
-          rceptEndde: item['RCEPT_ENDDE'] || '',
         }
       }
 
@@ -56,8 +85,8 @@ export async function GET(request: Request) {
         type: item['HOUSE_TY'] || '',
         rate: item['CMPET_RATE'] || '',
         reqCnt: item['REQ_CNT'] || '0',
-        suply: item['SUPLY_HSHLDCO'] || '0',
-        rank: item['SUBSCRPT_RANK_CODE'] || '',
+        suply: String(item['SUPLY_HSHLDCO'] || '0'),
+        rank: String(item['SUBSCRPT_RANK_CODE'] || ''),
         reside: item['RESIDE_SENM'] || '',
       })
     })
@@ -73,7 +102,7 @@ export async function GET(request: Request) {
       results = results.filter(r => r.region === region)
     }
 
-    return NextResponse.json({ items: results, total: data?.totalCount || 0 })
+    return NextResponse.json({ items: results, total: cmpetData?.totalCount || 0 })
   } catch (error) {
     console.error('Fetch error:', error)
     return NextResponse.json(getDummyData())
@@ -104,34 +133,24 @@ function getDummyData() {
         rceptEndde: '2025-06-12',
         houseTypes: [
           { type: '059.9900A', rate: '521', reqCnt: '12504', suply: '24', rank: '1', reside: '해당지역' },
-          { type: '084.9800A', rate: '312', reqCnt: '7488', suply: '24', rank: '1', reside: '해당지역' },
-          { type: '114.9700A', rate: '189', reqCnt: '2835', suply: '15', rank: '1', reside: '해당지역' },
+          { type: '059.9900A', rate: '312', reqCnt: '7488', suply: '24', rank: '1', reside: '기타지역' },
+          { type: '084.9800A', rate: '189', reqCnt: '2835', suply: '15', rank: '1', reside: '해당지역' },
+          { type: '084.9800A', rate: '95', reqCnt: '1425', suply: '15', rank: '2', reside: '해당지역' },
         ],
       },
       {
         pblancNo: 'D002',
-        houseName: '디에이치 퍼스티어 아이파크',
-        region: '서울',
-        rceptBgnde: '2025-05-15',
-        rceptEndde: '2025-05-17',
-        houseTypes: [
-          { type: '059.9800A', rate: '443', reqCnt: '10632', suply: '24', rank: '1', reside: '해당지역' },
-          { type: '084.9700B', rate: '(△3)', reqCnt: '0', suply: '24', rank: '1', reside: '해당지역' },
-        ],
-      },
-      {
-        pblancNo: 'D003',
         houseName: '힐스테이트 동탄 레이크시티',
         region: '경기',
         rceptBgnde: '2025-04-20',
         rceptEndde: '2025-04-22',
         houseTypes: [
           { type: '074.0000A', rate: '28', reqCnt: '1568', suply: '56', rank: '1', reside: '해당지역' },
-          { type: '084.9900A', rate: '15', reqCnt: '1050', suply: '70', rank: '1', reside: '해당지역' },
+          { type: '084.9900A', rate: '(△5)', reqCnt: '0', suply: '70', rank: '1', reside: '해당지역' },
         ],
       },
     ],
-    total: 3,
+    total: 2,
     isDummy: true,
   }
 }

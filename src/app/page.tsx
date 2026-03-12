@@ -194,24 +194,43 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 // ===================== 경쟁률 카드 =====================
 function CompetitionCard({ item }: { item: CompetitionItem }) {
   const [expanded, setExpanded] = useState(false)
-  // 1순위 해당지역 기준으로 대표 경쟁률 계산
-  const rank1 = item.houseTypes.filter(h => h.rank === '1' && h.reside === '해당지역')
-  const displayTypes = expanded ? item.houseTypes : rank1.length > 0 ? rank1 : item.houseTypes
 
-  const maxRate = rank1.reduce((max, h) => {
-    const r = parseFloat(h.rate)
-    return isNaN(r) ? max : Math.max(max, r)
-  }, 0)
+  // 주택형별로 그룹화
+  const typeGroups: Record<string, HouseTypeRate[]> = {}
+  item.houseTypes.forEach(h => {
+    const key = formatHouseType(h.type)
+    if (!typeGroups[key]) typeGroups[key] = []
+    typeGroups[key].push(h)
+  })
+
+  const typeKeys = Object.keys(typeGroups)
+  const displayKeys = expanded ? typeKeys : typeKeys.slice(0, 2)
+
+  // 최고 경쟁률 (1순위 해당지역)
+  const maxRate = item.houseTypes
+    .filter(h => h.rank === '1' && h.reside === '해당지역')
+    .reduce((max, h) => {
+      const r = parseFloat(h.rate)
+      return isNaN(r) ? max : Math.max(max, r)
+    }, 0)
+
+  const rankLabel: Record<string, string> = {
+    '1': '1순위', '2': '2순위', '3': '특별공급',
+  }
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover flex flex-col gap-3">
+      {/* 헤더 */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">APT</span>
-        <span className="text-xs text-gray-400">
-          {formatDate(item.rceptBgnde)} ~ {formatDate(item.rceptEndde)}
-        </span>
+        {(item.rceptBgnde || item.rceptEndde) && (
+          <span className="text-xs text-gray-400">
+            {formatDate(item.rceptBgnde)} ~ {formatDate(item.rceptEndde)}
+          </span>
+        )}
       </div>
 
+      {/* 단지명 */}
       <div>
         <h3 className="font-bold text-gray-900 text-base leading-snug">{item.houseName}</h3>
         <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
@@ -223,38 +242,63 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
       {maxRate > 0 && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">최고경쟁률</span>
-          <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${maxRate >= 100 ? 'bg-red-100 text-red-600' : maxRate >= 10 ? 'bg-orange-100 text-orange-600' : 'bg-yellow-100 text-yellow-600'}`}>
+          <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${
+            maxRate >= 100 ? 'bg-red-100 text-red-600' :
+            maxRate >= 10 ? 'bg-orange-100 text-orange-600' :
+            'bg-yellow-100 text-yellow-600'}`}>
             {maxRate} : 1
           </span>
+          <span className="text-xs text-gray-400">(1순위 해당지역)</span>
         </div>
       )}
 
       {/* 주택형별 경쟁률 테이블 */}
-      <div className="border-t border-gray-50 pt-3">
-        <div className="flex justify-between text-xs text-gray-400 mb-2 px-1">
-          <span>주택형</span>
-          <span>공급/신청</span>
-          <span>경쟁률(1순위)</span>
-        </div>
-        <div className="space-y-1.5">
-          {displayTypes.slice(0, expanded ? undefined : 3).map((h, i) => {
-            const { label, isDeficit } = formatRate(h.rate)
-            return (
-              <div key={i} className="flex justify-between items-center text-sm bg-gray-50 rounded-lg px-3 py-1.5">
-                <span className="font-medium text-blue-600 w-16">{formatHouseType(h.type)}㎡</span>
-                <span className="text-gray-500 text-xs">{parseInt(h.suply).toLocaleString()} / {parseInt(h.reqCnt).toLocaleString()}</span>
-                <span className={`font-semibold text-xs ${isDeficit ? 'text-gray-400' : 'text-rose-600'}`}>{label}</span>
+      <div className="border-t border-gray-50 pt-3 space-y-3">
+        {displayKeys.map((typeKey) => {
+          const rows = typeGroups[typeKey]
+          return (
+            <div key={typeKey} className="bg-gray-50 rounded-xl p-3">
+              <p className="text-sm font-bold text-blue-600 mb-2">{typeKey}㎡</p>
+              <div className="space-y-1">
+                {/* 헤더 */}
+                <div className="grid grid-cols-3 text-xs text-gray-400 px-1 mb-1">
+                  <span>구분</span>
+                  <span className="text-center">공급/신청</span>
+                  <span className="text-right">경쟁률</span>
+                </div>
+                {rows.map((h, i) => {
+                  const { label, isDeficit } = formatRate(h.rate)
+                  const isEmpty = h.rate === '-'
+                  return (
+                    <div key={i} className="grid grid-cols-3 items-center text-xs bg-white rounded-lg px-2 py-1.5">
+                      <span className="text-gray-500">
+                        {rankLabel[h.rank] || h.rank}
+                        <span className="text-gray-400 ml-1">({h.reside === '해당지역' ? '해당' : '기타'})</span>
+                      </span>
+                      <span className="text-center text-gray-500">
+                        {parseInt(h.suply).toLocaleString()} / {parseInt(h.reqCnt).toLocaleString()}
+                      </span>
+                      <span className={`text-right font-semibold ${
+                        isEmpty ? 'text-gray-300' :
+                        isDeficit ? 'text-gray-400' :
+                        'text-rose-600'}`}>
+                        {isEmpty ? '-' : label}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
-        </div>
-        {item.houseTypes.length > 3 && (
-          <button onClick={() => setExpanded(!expanded)}
-            className="mt-2 w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1">
-            {expanded ? '접기 ▲' : `+${item.houseTypes.length - 3}개 더보기 ▼`}
-          </button>
-        )}
+            </div>
+          )
+        })}
       </div>
+
+      {typeKeys.length > 2 && (
+        <button onClick={() => setExpanded(!expanded)}
+          className="w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1">
+          {expanded ? '접기 ▲' : `+${typeKeys.length - 2}개 주택형 더보기 ▼`}
+        </button>
+      )}
     </div>
   )
 }
