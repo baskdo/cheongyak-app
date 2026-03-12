@@ -37,8 +37,6 @@ export async function GET(request: Request) {
 
   const keyword = (searchParams.get('keyword') || '').trim()
   const region = (searchParams.get('region') || '').trim()
-
-  // 프론트에서 전달하는 월 단위 범위
   const yearMonthFrom = (searchParams.get('yearMonthFrom') || '').trim()
   const yearMonthTo = (searchParams.get('yearMonthTo') || '').trim()
 
@@ -50,44 +48,54 @@ export async function GET(request: Request) {
   }
 
   try {
+    const targetYears = getTargetYears(yearMonthFrom, yearMonthTo)
+    const usesRealtime = targetYears.some((y) => y >= 2024)
+    const usesFileData = targetYears.some((y) => y <= 2023)
+
     const enc2 = encodeURIComponent(apiKey2)
     const enc1 = apiKey1 ? encodeURIComponent(apiKey1) : ''
 
-    // 1) 경쟁률 / 특별공급 전체 페이지 수집
-    const cmpetItems = await fetchAllCmpetItems(enc2, yearMonthFrom, yearMonthTo)
-    const spsplyItems = await fetchAllSpsplyItems(enc2, yearMonthFrom, yearMonthTo)
+    const [realtimeRows, realtimeSpsplyRows, fileRows] = await Promise.all([
+      usesRealtime ? fetchRealtimeCmpetRows(enc2, yearMonthFrom, yearMonthTo) : Promise.resolve<Row[]>([]),
+      usesRealtime ? fetchRealtimeSpsplyRows(enc2, yearMonthFrom, yearMonthTo) : Promise.resolve<Row[]>([]),
+      usesFileData ? fetchFileDataCmpetRows(yearMonthFrom, yearMonthTo) : Promise.resolve<Row[]>([]),
+    ])
 
-    // 공고번호 목록
+    const mergedCmpetRows = dedupeRowsByKey([...realtimeRows, ...fileRows], (row) => {
+      const no = clean(row['PBLANC_NO'])
+      const type = normalizeHouseType(row['HOUSE_TY'] || row['주택형'] || '')
+      const rank = clean(row['SUBSCRPT_RANK_CODE'] || row['순위'])
+      const reside = clean(row['RESIDE_SENM'] || row['거주지역'])
+      return `${no}_${type}_${rank}_${reside}`
+    })
+
     const pblancNos = Array.from(
       new Set(
-        cmpetItems
-          .map((item) => (item['PBLANC_NO'] || '').trim())
+        mergedCmpetRows
+          .map((item) => clean(item['PBLANC_NO']))
           .filter(Boolean)
       )
     )
 
-    // 2) 상세 API에서 공고번호 기준으로 단지명/주소/기간 보강
     const detailMap: Record<string, DetailInfo> =
       enc1 && pblancNos.length > 0 ? await fetchDetailMap(enc1, pblancNos) : {}
 
-    // 3) 특별공급 맵
     const spsplyMap: Record<string, Row> = {}
-    spsplyItems.forEach((item) => {
-      const no = (item['PBLANC_NO'] || '').trim()
+    realtimeSpsplyRows.forEach((item) => {
+      const no = clean(item['PBLANC_NO'])
       const houseTy = normalizeHouseType(item['HOUSE_TY'] || '')
       if (!no) return
       spsplyMap[`${no}_${houseTy}`] = item
     })
 
-    // 4) 그룹화
     const groupMap: Record<string, GroupItem> = {}
 
-    cmpetItems.forEach((item) => {
-      const no = (item['PBLANC_NO'] || '').trim()
+    mergedCmpetRows.forEach((item) => {
+      const no = clean(item['PBLANC_NO'])
       if (!no) return
 
       const detail = detailMap[no]
-      const houseType = item['HOUSE_TY'] || ''
+      const houseType = item['HOUSE_TY'] || item['주택형'] || ''
       const typeKey = `${no}_${normalizeHouseType(houseType)}`
 
       const inferredRegion =
@@ -95,47 +103,44 @@ export async function GET(request: Request) {
           ? normalizeRegion(detail?.region || '')
           : normalizeRegion(detail?.address || '') !== '기타'
             ? normalizeRegion(detail?.address || '')
-            : normalizeRegion(item['RESIDE_SENM'] || '')
+            : normalizeRegion(item['RESIDE_SENM'] || item['거주지역'] || '')
 
       if (!groupMap[no]) {
         groupMap[no] = {
           pblancNo: no,
-          houseName: detail?.name || item['HOUSE_NM'] || '',
+          houseName: detail?.name || item['HOUSE_NM'] || item['주택명'] || '',
           region: inferredRegion,
-          rceptBgnde: detail?.rceptBgnde || '',
-          rceptEndde: detail?.rceptEndde || '',
+          rceptBgnde: detail?.rceptBgnde || item['RCEPT_BGNDE'] || '',
+          rceptEndde: detail?.rceptEndde || item['RCEPT_ENDDE'] || '',
           houseTypes: [],
         }
       }
 
       groupMap[no].houseTypes.push({
         type: houseType,
-        rate: item['CMPET_RATE'] || '',
-        reqCnt: item['REQ_CNT'] || '0',
-        suply: String(item['SUPLY_HSHLDCO'] || '0'),
-        rank: String(item['SUBSCRPT_RANK_CODE'] || ''),
-        reside: item['RESIDE_SENM'] || '',
+        rate: item['CMPET_RATE'] || item['경쟁률'] || '',
+        reqCnt: String(item['REQ_CNT'] || item['접수건수'] || '0'),
+        suply: String(item['SUPLY_HSHLDCO'] || item['공급세대수'] || '0'),
+        rank: String(item['SUBSCRPT_RANK_CODE'] || item['순위'] || ''),
+        reside: item['RESIDE_SENM'] || item['거주지역'] || '',
         spsply: spsplyMap[typeKey],
       })
     })
 
     let results = Object.values(groupMap)
 
-    // 5) 상세 기간 기준 월 필터 재적용
     if (yearMonthFrom || yearMonthTo) {
       results = results.filter((r) => {
         const bg = normalizeYearMonth(r.rceptBgnde)
         const ed = normalizeYearMonth(r.rceptEndde)
-        if (!bg || !ed) return false
+        if (!bg || !ed) return true
 
         const from = yearMonthFrom || bg
         const to = yearMonthTo || ed
-
         return isMonthOverlapped(bg, ed, from, to)
       })
     }
 
-    // 6) 키워드 / 지역 필터
     if (keyword) {
       results = results.filter((r) => r.houseName.includes(keyword))
     }
@@ -144,7 +149,6 @@ export async function GET(request: Request) {
       results = results.filter((r) => normalizeRegion(r.region) === normalizeRegion(region))
     }
 
-    // 7) 최신 순 정렬
     results.sort((a, b) => {
       const aDate = normalizeDate(a.rceptBgnde)
       const bDate = normalizeDate(b.rceptBgnde)
@@ -154,6 +158,12 @@ export async function GET(request: Request) {
     return NextResponse.json({
       items: results,
       total: results.length,
+      meta: {
+        sources: {
+          realtime: usesRealtime,
+          filedata: usesFileData,
+        },
+      },
     })
   } catch (error) {
     console.error('competition fetch error:', error)
@@ -161,7 +171,7 @@ export async function GET(request: Request) {
   }
 }
 
-async function fetchAllCmpetItems(
+async function fetchRealtimeCmpetRows(
   encServiceKey: string,
   yearMonthFrom: string,
   yearMonthTo: string
@@ -173,26 +183,23 @@ async function fetchAllCmpetItems(
   for (let page = 1; page <= maxPages; page += 1) {
     const res = await fetch(
       `${CMPET_SVC}/getAPTLttotPblancCmpet?serviceKey=${encServiceKey}&page=${page}&perPage=${perPage}&returnType=JSON`,
-      { next: { revalidate: 900 } }
+      { next: { revalidate: 21600 } }
     )
 
     if (!res.ok) break
 
     const json = await res.json()
     const items: Row[] = Array.isArray(json?.data) ? json.data : []
-
     if (items.length === 0) break
 
     allItems.push(...items)
-
-    // 마지막 페이지면 종료
     if (items.length < perPage) break
   }
 
-  return filterCmpetRowsByMonthWindow(allItems, yearMonthFrom, yearMonthTo)
+  return filterRowsByMonthWindow(allItems, yearMonthFrom, yearMonthTo)
 }
 
-async function fetchAllSpsplyItems(
+async function fetchRealtimeSpsplyRows(
   encServiceKey: string,
   yearMonthFrom: string,
   yearMonthTo: string
@@ -204,70 +211,51 @@ async function fetchAllSpsplyItems(
   for (let page = 1; page <= maxPages; page += 1) {
     const res = await fetch(
       `${CMPET_SVC}/getAPTSpsplyReqstStus?serviceKey=${encServiceKey}&page=${page}&perPage=${perPage}&returnType=JSON`,
-      { next: { revalidate: 900 } }
+      { next: { revalidate: 21600 } }
     )
 
     if (!res.ok) break
 
     const json = await res.json()
     const items: Row[] = Array.isArray(json?.data) ? json.data : []
-
     if (items.length === 0) break
 
     allItems.push(...items)
-
     if (items.length < perPage) break
   }
 
-  return filterSpsplyRowsByMonthWindow(allItems, yearMonthFrom, yearMonthTo)
+  return filterRowsByMonthWindow(allItems, yearMonthFrom, yearMonthTo)
 }
 
-function filterCmpetRowsByMonthWindow(
-  rows: Row[],
-  yearMonthFrom: string,
-  yearMonthTo: string
-): Row[] {
-  if (!yearMonthFrom && !yearMonthTo) return rows
+async function fetchFileDataCmpetRows(yearMonthFrom: string, yearMonthTo: string): Promise<Row[]> {
+  const fileApiUrl = process.env.FILE_COMPETITION_API_URL
 
-  return rows.filter((row) => {
-    const ym = normalizeYearMonth(
-      row['RCEPT_BGNDE'] ||
-      row['RCEPT_ENDDE'] ||
-      row['PBLANC_DE'] ||
-      ''
-    )
+  if (!fileApiUrl) {
+    console.warn('FILE_COMPETITION_API_URL is missing; old-year file data cannot be fetched.')
+    return []
+  }
 
-    if (!ym) return true
+  const rows: Row[] = []
+  let page = 1
+  const perPage = 1000
+  const maxPages = 60
 
-    const from = yearMonthFrom || ym
-    const to = yearMonthTo || ym
+  while (page <= maxPages) {
+    const join = fileApiUrl.includes('?') ? '&' : '?'
+    const url = `${fileApiUrl}${join}page=${page}&perPage=${perPage}&returnType=JSON`
+    const res = await fetch(url, { next: { revalidate: 21600 } })
+    if (!res.ok) break
 
-    return from <= ym && ym <= to
-  })
-}
+    const json = await res.json()
+    const items: Row[] = Array.isArray(json?.data) ? json.data : []
+    if (items.length === 0) break
 
-function filterSpsplyRowsByMonthWindow(
-  rows: Row[],
-  yearMonthFrom: string,
-  yearMonthTo: string
-): Row[] {
-  if (!yearMonthFrom && !yearMonthTo) return rows
+    rows.push(...items)
+    if (items.length < perPage) break
+    page += 1
+  }
 
-  return rows.filter((row) => {
-    const ym = normalizeYearMonth(
-      row['RCEPT_BGNDE'] ||
-      row['RCEPT_ENDDE'] ||
-      row['PBLANC_DE'] ||
-      ''
-    )
-
-    if (!ym) return true
-
-    const from = yearMonthFrom || ym
-    const to = yearMonthTo || ym
-
-    return from <= ym && ym <= to
-  })
+  return filterRowsByMonthWindow(rows, yearMonthFrom, yearMonthTo)
 }
 
 async function fetchDetailMap(
@@ -284,26 +272,21 @@ async function fetchDetailMap(
   while (currentPage <= maxPages) {
     const res = await fetch(
       `${DETAIL_SVC}/getAPTLttotPblancDetail?serviceKey=${encServiceKey}&page=${currentPage}&perPage=${perPage}&returnType=JSON`,
-      { next: { revalidate: 900 } }
+      { next: { revalidate: 21600 } }
     )
 
     if (!res.ok) break
 
     const json = await res.json()
     const items: Row[] = Array.isArray(json?.data) ? json.data : []
-
     if (items.length === 0) break
 
     items.forEach((d) => {
-      const no = (d['PBLANC_NO'] || '').trim()
+      const no = clean(d['PBLANC_NO'])
       if (!no || !targetSet.has(no) || detailMap[no]) return
 
       const address = d['HSSPLY_ADRES'] || d['HOUSE_DTL_ADRES'] || ''
-      const regionText =
-        d['SUBSCRPT_AREA_CODE_NM'] ||
-        d['CTPV_NM'] ||
-        d['GUGUN_NM'] ||
-        address
+      const regionText = d['SUBSCRPT_AREA_CODE_NM'] || d['CTPV_NM'] || d['GUGUN_NM'] || address
 
       detailMap[no] = {
         name: d['HOUSE_NM'] || '',
@@ -316,12 +299,52 @@ async function fetchDetailMap(
 
     const resolvedCount = targetPblancNos.filter((no) => !!detailMap[no]).length
     if (resolvedCount === targetPblancNos.length) break
-
     if (items.length < perPage) break
     currentPage += 1
   }
 
   return detailMap
+}
+
+function filterRowsByMonthWindow(rows: Row[], yearMonthFrom: string, yearMonthTo: string): Row[] {
+  if (!yearMonthFrom && !yearMonthTo) return rows
+
+  return rows.filter((row) => {
+    const ym = normalizeYearMonth(
+      row['RCEPT_BGNDE'] ||
+      row['RCEPT_ENDDE'] ||
+      row['PBLANC_DE'] ||
+      row['모집공고일'] ||
+      ''
+    )
+
+    if (!ym) return true
+
+    const from = yearMonthFrom || ym
+    const to = yearMonthTo || ym
+    return from <= ym && ym <= to
+  })
+}
+
+function getTargetYears(yearMonthFrom: string, yearMonthTo: string): number[] {
+  if (!yearMonthFrom && !yearMonthTo) {
+    const currentYear = new Date().getFullYear()
+    return [currentYear]
+  }
+
+  const fromYear = parseInt((yearMonthFrom || yearMonthTo).slice(0, 4), 10)
+  const toYear = parseInt((yearMonthTo || yearMonthFrom).slice(0, 4), 10)
+
+  if (!Number.isFinite(fromYear) || !Number.isFinite(toYear)) {
+    const currentYear = new Date().getFullYear()
+    return [currentYear]
+  }
+
+  const years: number[] = []
+  for (let y = Math.min(fromYear, toYear); y <= Math.max(fromYear, toYear); y += 1) {
+    years.push(y)
+  }
+  return years
 }
 
 function normalizeHouseType(value: string): string {
@@ -332,7 +355,6 @@ function normalizeRegion(value: string): string {
   if (!value) return '기타'
 
   const text = value.replace(/\s+/g, '')
-
   if (text.includes('서울')) return '서울'
   if (text.includes('경기')) return '경기'
   if (text.includes('인천')) return '인천'
@@ -350,7 +372,6 @@ function normalizeRegion(value: string): string {
   if (text.includes('경상북도') || text.includes('경북')) return '경북'
   if (text.includes('경상남도') || text.includes('경남')) return '경남'
   if (text.includes('제주')) return '제주'
-
   return '기타'
 }
 
@@ -371,6 +392,24 @@ function normalizeYearMonth(value: string): string {
 function isMonthOverlapped(start1: string, end1: string, start2: string, end2: string): boolean {
   if (!start1 || !end1 || !start2 || !end2) return false
   return start1 <= end2 && start2 <= end1
+}
+
+function clean(value: string | undefined): string {
+  return (value || '').trim()
+}
+
+function dedupeRowsByKey<T>(rows: T[], keyFn: (row: T) => string): T[] {
+  const seen = new Set<string>()
+  const result: T[] = []
+
+  rows.forEach((row) => {
+    const key = keyFn(row)
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    result.push(row)
+  })
+
+  return result
 }
 
 function getDummyData() {
