@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  font-family: 'Noto Sans KR', sans-serif;
+}
+
+body {
+  background: #f5f7fb;
+  color: #1a1a2e;
+}
+
+@layer components {
+  .card-hover {
+    @apply transition-all duration-200 hover:-translate-y-1 hover:shadow-lg;
+  }
+
+  .status-badge {
+    @apply text-xs font-semibold px-2.5 py-1 rounded-full;
+  }
+
+  .filter-btn {
+    @apply px-4 py-1.5 rounded-full text-sm font-medium border transition-all duration-150 cursor-pointer;
+  }
+
+  .filter-btn-active {
+    @apply bg-blue-600 text-white border-blue-600;
+  }
+
+  .filter-btn-inactive {
+    @apply bg-white text-gray-600 border-gray-200 hover:border-blue-400 hover:text-blue-600;
+  }
+}
