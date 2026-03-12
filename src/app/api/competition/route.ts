@@ -13,12 +13,35 @@ type DetailInfo = {
   rceptEndde: string
 }
 
+type HouseTypeItem = {
+  type: string
+  rate: string
+  reqCnt: string
+  suply: string
+  rank: string
+  reside: string
+  spsply?: Row
+}
+
+type GroupItem = {
+  pblancNo: string
+  houseName: string
+  region: string
+  rceptBgnde: string
+  rceptEndde: string
+  houseTypes: HouseTypeItem[]
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
+
   const keyword = (searchParams.get('keyword') || '').trim()
   const region = (searchParams.get('region') || '').trim()
   const page = Number(searchParams.get('page') || '1')
   const perPage = Number(searchParams.get('perPage') || '200')
+  const samePeriod = searchParams.get('samePeriod') === 'true'
+  const startDate = (searchParams.get('startDate') || '').trim()
+  const endDate = (searchParams.get('endDate') || '').trim()
 
   const apiKey2 = process.env.API_KEY2
   const apiKey1 = process.env.API_KEY
@@ -31,7 +54,7 @@ export async function GET(request: Request) {
     const enc2 = encodeURIComponent(apiKey2)
     const enc1 = apiKey1 ? encodeURIComponent(apiKey1) : ''
 
-    // 1) 경쟁률 + 특별공급 현황
+    // 1) 실시간 경쟁률 + 특별공급 신청현황
     const [cmpetRes, spsplyRes] = await Promise.all([
       fetch(
         `${CMPET_SVC}/getAPTLttotPblancCmpet?serviceKey=${enc2}&page=${page}&perPage=${perPage}&returnType=JSON`,
@@ -53,70 +76,50 @@ export async function GET(request: Request) {
     const cmpetItems: Row[] = Array.isArray(cmpetData?.data) ? cmpetData.data : []
     const spsplyItems: Row[] = Array.isArray(spsplyData?.data) ? spsplyData.data : []
 
-    // 공고번호 수집
+    // Set 스프레드 대신 Array.from 사용
     const pblancNos = Array.from(
       new Set(
         cmpetItems
-          .map((i) => (i['PBLANC_NO'] || '').trim())
+          .map((item) => (item['PBLANC_NO'] || '').trim())
           .filter(Boolean)
       )
     )
 
-    // 2) 공고 상세를 필요한 공고번호가 채워질 때까지 페이지 반복 조회
+    // 2) 상세 API 조회해서 단지명/주소/기간 보강
     const detailMap: Record<string, DetailInfo> =
       enc1 && pblancNos.length > 0 ? await fetchDetailMap(enc1, pblancNos) : {}
 
-    // 3) 특별공급 맵
+    // 3) 특별공급 데이터 맵핑 (공고번호 + 주택형)
     const spsplyMap: Record<string, Row> = {}
-    for (const item of spsplyItems) {
+    spsplyItems.forEach((item) => {
       const no = (item['PBLANC_NO'] || '').trim()
       const houseTy = normalizeHouseType(item['HOUSE_TY'] || '')
-      if (!no) continue
+      if (!no) return
       spsplyMap[`${no}_${houseTy}`] = item
-    }
+    })
 
-    // 4) 경쟁률 그룹화
-    const groupMap: Record<
-      string,
-      {
-        pblancNo: string
-        houseName: string
-        region: string
-        rceptBgnde: string
-        rceptEndde: string
-        houseTypes: {
-          type: string
-          rate: string
-          reqCnt: string
-          suply: string
-          rank: string
-          reside: string
-          spsply?: Row
-        }[]
-      }
-    > = {}
+    // 4) 경쟁률 데이터 그룹화
+    const groupMap: Record<string, GroupItem> = {}
 
-    for (const item of cmpetItems) {
+    cmpetItems.forEach((item) => {
       const no = (item['PBLANC_NO'] || '').trim()
-      if (!no) continue
+      if (!no) return
 
       const detail = detailMap[no]
       const houseType = item['HOUSE_TY'] || ''
       const typeKey = `${no}_${normalizeHouseType(houseType)}`
 
-      if (!groupMap[no]) {
-        const inferredRegion =
-          detail?.region ||
-          extractRegion(detail?.address || '') ||
-          extractRegion(item['RESIDE_SENM'] || '') ||
-          '기타'
+      const inferredRegion =
+        normalizeRegion(detail?.region || '') !== '기타'
+          ? normalizeRegion(detail?.region || '')
+          : normalizeRegion(detail?.address || '') !== '기타'
+            ? normalizeRegion(detail?.address || '')
+            : normalizeRegion(item['RESIDE_SENM'] || '')
 
+      if (!groupMap[no]) {
         groupMap[no] = {
           pblancNo: no,
-          houseName:
-            detail?.name ||
-            item['HOUSE_NM'] || // 혹시 경쟁률 응답에 있을 경우 대비
-            '',
+          houseName: detail?.name || item['HOUSE_NM'] || '',
           region: inferredRegion,
           rceptBgnde: detail?.rceptBgnde || '',
           rceptEndde: detail?.rceptEndde || '',
@@ -133,7 +136,7 @@ export async function GET(request: Request) {
         reside: item['RESIDE_SENM'] || '',
         spsply: spsplyMap[typeKey],
       })
-    }
+    })
 
     let results = Object.values(groupMap)
 
@@ -145,19 +148,62 @@ export async function GET(request: Request) {
       results = results.filter((r) => normalizeRegion(r.region) === normalizeRegion(region))
     }
 
+    // 명시적 기간 필터
+    if (startDate || endDate) {
+      results = results.filter((r) => {
+        const bg = normalizeDate(r.rceptBgnde)
+        const ed = normalizeDate(r.rceptEndde)
+
+        if (!bg || !ed) return false
+
+        if (startDate && endDate) {
+          return isOverlapped(bg, ed, normalizeDate(startDate), normalizeDate(endDate))
+        }
+
+        if (startDate) {
+          return isDateInRange(normalizeDate(startDate), bg, ed)
+        }
+
+        if (endDate) {
+          return isDateInRange(normalizeDate(endDate), bg, ed)
+        }
+
+        return true
+      })
+    }
+
+    // 같은 시기 단지 자동 확장
+    if (samePeriod && results.length > 0) {
+      const base = results.find((r) => r.rceptBgnde && r.rceptEndde)
+
+      if (base) {
+        const baseStart = normalizeDate(base.rceptBgnde)
+        const baseEnd = normalizeDate(base.rceptEndde)
+
+        results = Object.values(groupMap).filter((r) => {
+          const bg = normalizeDate(r.rceptBgnde)
+          const ed = normalizeDate(r.rceptEndde)
+
+          const matchedRegion =
+            !region || region === '전체'
+              ? true
+              : normalizeRegion(r.region) === normalizeRegion(region)
+
+          return matchedRegion && isOverlapped(bg, ed, baseStart, baseEnd)
+        })
+      }
+    }
+
     return NextResponse.json({
       items: results,
-      total: cmpetData?.totalCount || results.length,
+      total: results.length,
     })
   } catch (error) {
-    console.error('Fetch error:', error)
+    console.error('competition fetch error:', error)
     return NextResponse.json(getDummyData())
   }
 }
 
-/**
- * 상세 API를 여러 페이지 순회하며 필요한 PBLANC_NO가 모두 채워질 때까지 가져옴
- */
 async function fetchDetailMap(
   encServiceKey: string,
   targetPblancNos: string[]
@@ -167,7 +213,7 @@ async function fetchDetailMap(
 
   let currentPage = 1
   const perPage = 500
-  const maxPages = 20 // 과도한 호출 방지
+  const maxPages = 20
 
   while (currentPage <= maxPages) {
     const res = await fetch(
@@ -179,12 +225,12 @@ async function fetchDetailMap(
 
     const json = await res.json()
     const items: Row[] = Array.isArray(json?.data) ? json.data : []
+
     if (items.length === 0) break
 
-    for (const d of items) {
+    items.forEach((d) => {
       const no = (d['PBLANC_NO'] || '').trim()
-      if (!no || !targetSet.has(no)) continue
-      if (detailMap[no]) continue
+      if (!no || !targetSet.has(no) || detailMap[no]) return
 
       const address = d['HSSPLY_ADRES'] || d['HOUSE_DTL_ADRES'] || ''
       const regionText =
@@ -196,19 +242,16 @@ async function fetchDetailMap(
       detailMap[no] = {
         name: d['HOUSE_NM'] || '',
         address,
-        region: extractRegion(regionText),
+        region: normalizeRegion(regionText),
         rceptBgnde: d['RCEPT_BGNDE'] || '',
         rceptEndde: d['RCEPT_ENDDE'] || '',
       }
-    }
+    })
 
-    // 필요한 공고번호를 다 채웠으면 종료
     const resolvedCount = targetPblancNos.filter((no) => !!detailMap[no]).length
     if (resolvedCount === targetPblancNos.length) break
 
-    // 마지막 페이지 추정
     if (items.length < perPage) break
-
     currentPage += 1
   }
 
@@ -220,41 +263,46 @@ function normalizeHouseType(value: string): string {
 }
 
 function normalizeRegion(value: string): string {
-  return extractRegion(value)
-}
+  if (!value) return '기타'
 
-function extractRegion(text: string): string {
-  if (!text) return '기타'
+  const text = value.replace(/\s+/g, '')
 
-  const normalized = text.replace(/\s+/g, '')
-
-  const regions: [string[], string][] = [
-    [['서울특별시', '서울'], '서울'],
-    [['경기도', '경기'], '경기'],
-    [['인천광역시', '인천'], '인천'],
-    [['부산광역시', '부산'], '부산'],
-    [['대구광역시', '대구'], '대구'],
-    [['광주광역시', '광주'], '광주'],
-    [['대전광역시', '대전'], '대전'],
-    [['울산광역시', '울산'], '울산'],
-    [['세종특별자치시', '세종'], '세종'],
-    [['강원특별자치도', '강원도', '강원'], '강원'],
-    [['충청북도', '충북'], '충북'],
-    [['충청남도', '충남'], '충남'],
-    [['전북특별자치도', '전라북도', '전북'], '전북'],
-    [['전라남도', '전남'], '전남'],
-    [['경상북도', '경북'], '경북'],
-    [['경상남도', '경남'], '경남'],
-    [['제주특별자치도', '제주도', '제주'], '제주'],
-  ]
-
-  for (const [aliases, label] of regions) {
-    if (aliases.some((alias) => normalized.includes(alias))) {
-      return label
-    }
-  }
+  if (text.includes('서울')) return '서울'
+  if (text.includes('경기')) return '경기'
+  if (text.includes('인천')) return '인천'
+  if (text.includes('부산')) return '부산'
+  if (text.includes('대구')) return '대구'
+  if (text.includes('광주')) return '광주'
+  if (text.includes('대전')) return '대전'
+  if (text.includes('울산')) return '울산'
+  if (text.includes('세종')) return '세종'
+  if (text.includes('강원')) return '강원'
+  if (text.includes('충청북도') || text.includes('충북')) return '충북'
+  if (text.includes('충청남도') || text.includes('충남')) return '충남'
+  if (text.includes('전라북도') || text.includes('전북')) return '전북'
+  if (text.includes('전라남도') || text.includes('전남')) return '전남'
+  if (text.includes('경상북도') || text.includes('경북')) return '경북'
+  if (text.includes('경상남도') || text.includes('경남')) return '경남'
+  if (text.includes('제주')) return '제주'
 
   return '기타'
+}
+
+function normalizeDate(value: string): string {
+  if (!value) return ''
+  const onlyNum = value.replace(/[^\d]/g, '')
+  if (onlyNum.length !== 8) return ''
+  return `${onlyNum.slice(0, 4)}-${onlyNum.slice(4, 6)}-${onlyNum.slice(6, 8)}`
+}
+
+function isDateInRange(target: string, start: string, end: string): boolean {
+  if (!target || !start || !end) return false
+  return start <= target && target <= end
+}
+
+function isOverlapped(start1: string, end1: string, start2: string, end2: string): boolean {
+  if (!start1 || !end1 || !start2 || !end2) return false
+  return start1 <= end2 && start2 <= end1
 }
 
 function getDummyData() {
