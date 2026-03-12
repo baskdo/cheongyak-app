@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import iconv from 'iconv-lite'
 
 function parseCSVLine(line: string): string[] {
   const result: string[] = []
@@ -32,24 +33,29 @@ function parseCSVLine(line: string): string[] {
 export function loadCSV(fileName: string): Record<string, string>[] {
   const filePath = path.join(process.cwd(), 'data', fileName)
 
-  console.log('[CSV] loading:', filePath)
-
   if (!fs.existsSync(filePath)) {
     console.error('[CSV] file not found:', filePath)
     return []
   }
 
-  const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')
-  const lines = raw.split(/\r?\n/).filter(line => line.trim() !== '')
+  const buffer = fs.readFileSync(filePath)
 
-  if (lines.length === 0) {
-    console.error('[CSV] empty file:', fileName)
-    return []
+  let raw = ''
+  try {
+    raw = iconv.decode(buffer, 'cp949')
+  } catch {
+    raw = buffer.toString('utf8')
   }
 
+  raw = raw.replace(/^\uFEFF/, '')
+
+  const lines = raw.split(/\r?\n/).filter(line => line.trim() !== '')
+  if (lines.length === 0) return []
+
   const headers = parseCSVLine(lines[0])
-  console.log('[CSV] headers:', fileName, headers.slice(0, 20))
-  console.log('[CSV] line count:', fileName, lines.length)
+  console.log('[CSV] loading:', fileName)
+  console.log('[CSV] headers:', headers.slice(0, 15))
+  console.log('[CSV] rows:', lines.length - 1)
 
   return lines.slice(1).map(line => {
     const cols = parseCSVLine(line)
