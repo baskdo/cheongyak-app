@@ -42,7 +42,20 @@ function formatDate(dateStr: string): string {
   if (!dateStr) return '-'
   const s = dateStr.replace(/-/g, '')
   if (s.length !== 8) return dateStr
-  return `${parseInt(s.slice(4, 6))}월 ${parseInt(s.slice(6, 8))}일`
+  const y = parseInt(s.slice(0, 4))
+  const m = parseInt(s.slice(4, 6))
+  const d = parseInt(s.slice(6, 8))
+  const date = new Date(y, m - 1, d)
+  const days = ['일', '월', '화', '수', '목', '금', '토']
+  const dayName = days[date.getDay()]
+  return `${m}월 ${d}일(${dayName})`
+}
+
+function formatHouseType(typeStr: string): string {
+  // "083.9878A" → "84A" 아니고 "84A", "112.8723" → "112" (소수점 버림)
+  return typeStr.trim().replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, num, suffix) => {
+    return Math.floor(parseFloat(typeStr.trim())) + suffix.toUpperCase()
+  })
 }
 
 function formatPrice(price: string): string {
@@ -94,7 +107,7 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
         <div className="flex flex-wrap gap-1">
           {item.houseTypes.split(',').map((t, i) => (
             <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">
-              {t.trim()}㎡
+              {formatHouseType(t)}㎡
             </span>
           ))}
         </div>
@@ -240,7 +253,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🏢</span>
-            <span className="font-bold text-lg text-gray-900">한눈에 보는 청약홈</span>
+            <span className="font-bold text-lg text-gray-900">청약홈 간략조회_MarU</span>
           </div>
           <button
             onClick={fetchData}
