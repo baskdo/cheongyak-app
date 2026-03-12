@@ -293,22 +293,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
     }, 0)
   }
 
-  // 대표 주택형: 1순위 해당지역이 있는 주택형 우선, 없으면 첫 번째
-  const representativeTypeRow =
-    item.houseTypes.find((h) => h.rank === '1' && h.reside === '해당지역') ||
-    item.houseTypes.find((h) => h.rank === '1') ||
-    item.houseTypes[0]
-
-  const representativeTypeName = representativeTypeRow
-    ? formatHouseType(representativeTypeRow.type)
-    : '-'
-  const representativeSupply = representativeTypeRow
-    ? parseInt(representativeTypeRow.suply || '0', 10)
-    : 0
-  const representativeReq = representativeTypeRow
-    ? parseInt(representativeTypeRow.reqCnt || '0', 10)
-    : 0
-
   const rankLabel: Record<string, string> = {
     '1': '1순위',
     '2': '2순위',
@@ -339,12 +323,18 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
       {/* 요약 블록 */}
       <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 space-y-1.5 leading-relaxed">
         <div>
-          특공 (접수) <span className="font-bold">{specialTotalReq.toLocaleString()}건</span>
+          특공 (접수){' '}
+          <span className="font-bold text-blue-600">
+            {specialTotalReq.toLocaleString()}건
+          </span>
           <span className="text-gray-400 ml-1">(기관/이전 제외)</span>
         </div>
 
         <div>
-          1순위 (접수) <span className="font-bold">{rank1TotalReq.toLocaleString()}건</span>
+          1순위 (접수){' '}
+          <span className="font-bold text-red-500">
+            {rank1TotalReq.toLocaleString()}건
+          </span>
           <span className="text-gray-400 ml-1">(해당/기타 합계)</span>
         </div>
 
@@ -354,10 +344,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
 
         <div>
           2순위 (접수) <span className="font-bold">{rank2TotalReq.toLocaleString()}건</span>
-        </div>
-
-        <div className="pt-1 text-gray-800">
-          {representativeTypeName}㎡ (공급:{representativeSupply.toLocaleString()}/신청:{representativeReq.toLocaleString()})건
         </div>
       </div>
 
@@ -488,6 +474,7 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
     </div>
   )
 }
+
 // ===================== 스켈레톤 =====================
 function SkeletonCard() {
   return (
@@ -609,22 +596,25 @@ export default function Home() {
   return (
     <main className="min-h-screen pb-16">
       <header className="bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🏢</span>
-            <span className="font-bold text-lg text-gray-900">청약홈 간략조회_MarU</span>
-          </div>
-          <button
-            onClick={() =>
-              activeTab === 'notice'
-                ? fetchNotice()
-                : fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo)
-            }
-            className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-          >
-            🔄 새로고침
-          </button>
-        </div>
+  <div className="max-w-5xl mx-auto px-4 py-4 relative">
+    <div className="flex items-center justify-center gap-3">
+      <span className="text-4xl">🏢</span>
+      <span className="font-extrabold text-2xl md:text-3xl text-gray-900">
+        청약홈 간략조회_MarU
+      </span>
+    </div>
+
+    <button
+      onClick={() =>
+        activeTab === 'notice'
+          ? fetchNotice()
+          : fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo)
+      }
+      className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+    >
+      🔄 새로고침
+    </button>
+  </div>
 
         <div className="max-w-5xl mx-auto px-4 flex gap-0 border-t border-gray-100">
           <button
