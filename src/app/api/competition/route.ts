@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { loadCSV } from '@/lib/csvLoader'
 
 type CmpetRow = {
   HOUSE_MANAGE_NO?: string
@@ -299,36 +298,6 @@ export async function GET(request: Request) {
       fetchCompetitionRows(),
       fetchSpecialSupplyRows(),
     ])
-
-    const supplyRows = loadCSV('apt_supply_info.csv')
-
-    const supplyMap = new Map<
-      string,
-      {
-        houseName: string
-        region: string
-        address: string
-        rceptBgnde: string
-        rceptEndde: string
-      }
-    >()
-
-    for (const row of supplyRows) {
-      const houseManageNo = getByKeys(row, ['HOUSE_MANAGE_NO'], 0)
-      const pblancNo = getByKeys(row, ['PBLANC_NO'], 1)
-      const houseName = getByKeys(row, ['HOUSE_NM', 'HSSPLY_NM'], 2)
-      const regionRaw = getByKeys(row, ['SUBSCRPT_AREA_CODE_NM', 'CNP_CD_NM'], 11)
-      const address = getByKeys(row, ['HSSPLY_ADRES', 'ADRES'], 12)
-      const rceptBgnde = parseDate(getByKeys(row, ['RCEPT_BGNDE'], 15))
-      const rceptEndde = parseDate(getByKeys(row, ['RCEPT_ENDDE'], 16))
-
-      const info = {
-        houseName: houseName || '',
-        region: normalizeRegion(regionRaw, address, houseName),
-        address: address || '',
-        rceptBgnde: rceptBgnde || '',
-        rceptEndde: rceptEndde || '',
-      }
 
       if (houseManageNo) supplyMap.set(houseManageNo, info)
       if (pblancNo) supplyMap.set(pblancNo, info)
