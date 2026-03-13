@@ -214,22 +214,41 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
       </div>
 
       <div className="flex items-center gap-2 pt-1">
-        <a href={`https://map.naver.com/v5/search/${encodeURIComponent(item.name)}`} target="_blank" rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full flex items-center justify-center bg-green-50 hover:bg-green-100 transition-colors" title="네이버 지도">
+        <a
+          href={`https://map.naver.com/v5/search/${encodeURIComponent(item.name)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-9 h-9 rounded-full flex items-center justify-center bg-green-50 hover:bg-green-100 transition-colors"
+          title="네이버 지도"
+        >
           <span className="text-lg">🗺</span>
         </a>
-        <a href="https://www.applyhome.co.kr" target="_blank" rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full flex items-center justify-center bg-blue-50 hover:bg-blue-100 transition-colors" title="청약홈">
+        <a
+          href="https://www.applyhome.co.kr"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-9 h-9 rounded-full flex items-center justify-center bg-blue-50 hover:bg-blue-100 transition-colors"
+          title="청약홈"
+        >
           <span className="text-lg">🏠</span>
         </a>
         {item.pdfUrl && (
-          <a href={item.pdfUrl} target="_blank" rel="noopener noreferrer"
-            className="w-9 h-9 rounded-full flex items-center justify-center bg-red-50 hover:bg-red-100 transition-colors" title="모집공고">
+          <a
+            href={item.pdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-9 h-9 rounded-full flex items-center justify-center bg-red-50 hover:bg-red-100 transition-colors"
+            title="모집공고"
+          >
             <span className="text-lg">📄</span>
           </a>
         )}
-        <a href={item.hompageUrl} target="_blank" rel="noopener noreferrer"
-          className="flex-1 text-center text-sm font-semibold bg-gray-900 text-white rounded-xl py-2 hover:bg-gray-700 transition-colors">
+        <a
+          href={item.hompageUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 text-center text-sm font-semibold bg-gray-900 text-white rounded-xl py-2 hover:bg-gray-700 transition-colors"
+        >
           공홈
         </a>
       </div>
@@ -246,6 +265,20 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
     const key = formatHouseType(h.type)
     if (!typeGroups[key]) typeGroups[key] = []
     typeGroups[key].push(h)
+  })
+
+  const rowOrder = (h: HouseTypeRate) => {
+    const rankOrder = h.rank === '1' ? 1 : h.rank === '2' ? 2 : 3
+    const resideOrder =
+      h.reside === '해당지역' ? 1 :
+      h.reside === '기타지역' ? 2 :
+      h.reside === '기타경기' ? 3 : 9
+
+    return rankOrder * 10 + resideOrder
+  }
+
+  Object.keys(typeGroups).forEach((key) => {
+    typeGroups[key] = [...typeGroups[key]].sort((a, b) => rowOrder(a) - rowOrder(b))
   })
 
   const typeKeys = Object.keys(typeGroups)
@@ -266,12 +299,23 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
   const rank1EtcReq = rank1Rows
     .filter((h) => h.reside !== '해당지역')
     .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+  const rank1Supply = rank1Rows
+    .reduce((sum, h) => sum + parseInt(h.suply || '0', 10), 0)
 
   const rank2Rows = item.houseTypes.filter((h) => h.rank === '2')
   const rank2TotalReq = rank2Rows.reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+  const rank2LocalReq = rank2Rows
+    .filter((h) => h.reside === '해당지역')
+    .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+  const rank2EtcReq = rank2Rows
+    .filter((h) => h.reside !== '해당지역')
+    .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
+  const rank2Supply = rank2Rows
+    .reduce((sum, h) => sum + parseInt(h.suply || '0', 10), 0)
 
   const spsplyRow = item.houseTypes.find((h) => h.spsply)?.spsply
   let specialTotalReq = 0
+  let specialTotalSupply = 0
 
   if (spsplyRow) {
     const specialReqFields = [
@@ -283,7 +327,20 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
       'CRSPAREA_OPS_CNT',
     ]
 
+    const specialSupplyFields = [
+      'MNYCH_HSHLDCO',
+      'NWWDS_NMTW_HSHLDCO',
+      'LFE_FRST_HSHLDCO',
+      'NWBB_NWBBSHR_HSHLDCO',
+      'YGMN_HSHLDCO',
+      'OLD_PARNTS_SUPORT_HSHLDCO',
+    ]
+
     specialTotalReq = specialReqFields.reduce((sum, field) => {
+      return sum + parseInt(spsplyRow[field] || '0', 10)
+    }, 0)
+
+    specialTotalSupply = specialSupplyFields.reduce((sum, field) => {
       return sum + parseInt(spsplyRow[field] || '0', 10)
     }, 0)
   }
@@ -311,14 +368,16 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
 
       <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 space-y-1.5 leading-relaxed">
         <div>
-          특공 (접수){' '}
+          특공 (공급 {specialTotalSupply.toLocaleString()}){' '}
           <span className="font-bold text-blue-600">{specialTotalReq.toLocaleString()}건</span>
+          <span className="ml-1">접수</span>
           <span className="text-gray-400 ml-1">(기관/이전 제외)</span>
         </div>
 
         <div>
-          1순위 (접수){' '}
+          1순위 (공급 {rank1Supply.toLocaleString()}){' '}
           <span className="font-bold text-red-500">{rank1TotalReq.toLocaleString()}건</span>
+          <span className="ml-1">접수</span>
           <span className="text-gray-400 ml-1">(해당/기타 합계)</span>
         </div>
 
@@ -327,7 +386,13 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         </div>
 
         <div>
-          2순위 (접수) <span className="font-bold">{rank2TotalReq.toLocaleString()}건</span>
+          2순위 (공급 {rank2Supply.toLocaleString()}){' '}
+          <span className="font-bold">{rank2TotalReq.toLocaleString()}건</span>
+          <span className="ml-1">접수</span>
+        </div>
+
+        <div className="text-gray-500 text-xs">
+          -해당: {rank2LocalReq.toLocaleString()}건 / 기타: {rank2EtcReq.toLocaleString()}건
         </div>
       </div>
 
@@ -348,7 +413,7 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
                   : 'bg-yellow-100 text-yellow-600'
             }`}
           >
-            {maxRate} : 1
+            {maxRate}:1
           </span>
           <span className="text-xs text-gray-400">(1순위 해당지역)</span>
         </div>
@@ -376,16 +441,28 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
                     <div key={i} className="grid grid-cols-3 items-center text-xs bg-white rounded-lg px-2 py-1.5">
                       <span className="text-gray-500">
                         {rankLabel[h.rank] || h.rank}
-                        <span className="text-gray-400 ml-1">({h.reside === '해당지역' ? '해당' : '기타'})</span>
+                        <span className="text-gray-400 ml-1">
+                          (
+                          {h.reside === '해당지역'
+                            ? '해당'
+                            : h.reside === '기타지역'
+                              ? '기타'
+                              : h.reside === '기타경기'
+                                ? '기타경기'
+                                : h.reside}
+                          )
+                        </span>
                       </span>
 
                       <span className="text-center text-gray-500">
                         {parseInt(h.suply || '0', 10).toLocaleString()} / {parseInt(h.reqCnt || '0', 10).toLocaleString()}
                       </span>
 
-                      <span className={`text-right font-semibold ${
-                        isEmpty ? 'text-gray-300' : isDeficit ? 'text-gray-400' : 'text-rose-600'
-                      }`}>
+                      <span
+                        className={`text-right font-semibold ${
+                          isEmpty ? 'text-gray-300' : isDeficit ? 'text-gray-400' : 'text-rose-600'
+                        }`}
+                      >
                         {isEmpty ? '-' : label}
                       </span>
                     </div>
@@ -420,7 +497,7 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
                 <div key={i} className="bg-blue-50 rounded-lg px-2 py-1.5 flex justify-between items-center">
                   <span className="text-xs text-gray-600">{s.label}</span>
                   <span className="text-xs font-semibold text-blue-700">
-                    {parseInt(special[s.cnt] || '0', 10).toLocaleString()} / {parseInt(special[s.suply] || '0', 10).toLocaleString()}
+                    {parseInt(special[s.suply] || '0', 10).toLocaleString()} / {parseInt(special[s.cnt] || '0', 10).toLocaleString()}
                   </span>
                 </div>
               ))}
@@ -430,7 +507,10 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
       })()}
 
       {typeKeys.length > 2 && (
-        <button onClick={() => setExpanded(!expanded)} className="w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1"
+        >
           {expanded ? '접기 ▲' : `+${typeKeys.length - 2}개 주택형 더보기 ▼`}
         </button>
       )}
