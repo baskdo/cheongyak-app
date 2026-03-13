@@ -43,6 +43,19 @@ type SpsplyRow = {
   RCEPT_ENDDE?: string
 }
 
+type NoticeRow = {
+  HOUSE_MANAGE_NO?: string
+  PBLANC_NO?: string
+  HOUSE_NM?: string
+  HSSPLY_NM?: string
+  PBLANC_NM?: string
+  HSSPLY_ADRES?: string
+  ADRES?: string
+  SUBSCRPT_AREA_CODE_NM?: string
+  RCEPT_BGNDE?: string
+  RCEPT_ENDDE?: string
+}
+
 type HouseTypeRate = {
   type: string
   rate: string
@@ -99,17 +112,9 @@ function toYm(dateStr: string): string {
   const text = (dateStr || '').trim()
   if (!text) return ''
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    return text.slice(0, 7)
-  }
-
-  if (/^\d{4}-\d{2}$/.test(text)) {
-    return text
-  }
-
-  if (/^\d{8}$/.test(text)) {
-    return `${text.slice(0, 4)}-${text.slice(4, 6)}`
-  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text.slice(0, 7)
+  if (/^\d{4}-\d{2}$/.test(text)) return text
+  if (/^\d{8}$/.test(text)) return `${text.slice(0, 4)}-${text.slice(4, 6)}`
 
   return ''
 }
@@ -138,8 +143,17 @@ function normalizeRegionFromText(source: string): string {
   return ''
 }
 
-function normalizeRegion(houseName: string): string {
-  return normalizeRegionFromText(houseName) || '기타'
+function normalizeRegion(houseName: string, address = '', regionName = ''): string {
+  const fromRegion = normalizeRegionFromText(regionName)
+  if (fromRegion) return fromRegion
+
+  const fromAddress = normalizeRegionFromText(address)
+  if (fromAddress) return fromAddress
+
+  const fromName = normalizeRegionFromText(houseName)
+  if (fromName) return fromName
+
+  return '기타'
 }
 
 function pickHouseName(row: {
@@ -147,12 +161,7 @@ function pickHouseName(row: {
   HSSPLY_NM?: string
   PBLANC_NM?: string
 }): string {
-  return String(
-    row.HOUSE_NM ||
-      row.HSSPLY_NM ||
-      row.PBLANC_NM ||
-      ''
-  ).trim()
+  return String(row.HOUSE_NM || row.HSSPLY_NM || row.PBLANC_NM || '').trim()
 }
 
 function normalizeRank(value: string | number | undefined): string {
@@ -359,6 +368,26 @@ async function fetchSpecialSupplyRows(): Promise<SpsplyRow[]> {
   return fetchPaged<SpsplyRow>('ApplyhomeInfoCmpetRtSvc/v1/getAPTSpsplyReqstStus')
 }
 
+async function fetchNoticeRows(): Promise<NoticeRow[]> {
+  const candidates = [
+    'ApplyhomeInfoDetailSvc/v1/getAPTLttotPblancDetail',
+    'ApplyhomeInfoDetailSvc/v1/getAPTLttotPblanc',
+  ]
+
+  for (const endpoint of candidates) {
+    try {
+      const rows = await fetchPaged<NoticeRow>(endpoint)
+      if (rows.length > 0) {
+        return rows
+      }
+    } catch {
+      // 다음 후보 endpoint 시도
+    }
+  }
+
+  return []
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
@@ -368,10 +397,37 @@ export async function GET(request: Request) {
     const yearMonthFrom = (searchParams.get('yearMonthFrom') || '').trim()
     const yearMonthTo = (searchParams.get('yearMonthTo') || '').trim()
 
-    const [competitionRows, specialRows] = await Promise.all([
+    const [competitionRows, specialRows, noticeRows] = await Promise.all([
       fetchCompetitionRows(),
       fetchSpecialSupplyRows(),
+      fetchNoticeRows(),
     ])
+
+    const noticeMap = new Map<
+      string,
+      {
+        houseName: string
+        address: string
+        regionName: string
+        rceptBgnde: string
+        rceptEndde: string
+      }
+    >()
+
+    for (const row of noticeRows) {
+      const pblancNo = String(row.PBLANC_NO || '').trim()
+      const houseManageNo = String(row.HOUSE_MANAGE_NO || '').trim()
+      const itemKey = toItemKey(pblancNo, houseManageNo)
+      if (!itemKey) continue
+
+      noticeMap.set(itemKey, {
+        houseName: pickHouseName(row),
+        address: String(row.HSSPLY_ADRES || row.ADRES || '').trim(),
+        regionName: String(row.SUBSCRPT_AREA_CODE_NM || '').trim(),
+        rceptBgnde: parseDate(row.RCEPT_BGNDE),
+        rceptEndde: parseDate(row.RCEPT_ENDDE),
+      })
+    }
 
     const specialMap = new Map<string, SpecialAgg>()
     const metaMap = new Map<
@@ -407,16 +463,35 @@ export async function GET(request: Request) {
     for (const row of competitionRows) {
       const houseManageNo = String(row.HOUSE_MANAGE_NO || '').trim()
       const pblancNo = String(row.PBLANC_NO || '').trim()
-      const houseNameRaw = pickHouseName(row)
       const itemKey = toItemKey(pblancNo, houseManageNo)
-
       if (!itemKey) continue
 
+      const notice = noticeMap.get(itemKey)
       const meta = metaMap.get(itemKey)
-      const houseName = meta?.houseName || houseNameRaw || '단지명 확인중'
-      const rceptBgnde = meta?.rceptBgnde || parseDate(row.RCEPT_BGNDE)
-      const rceptEndde = meta?.rceptEndde || parseDate(row.RCEPT_ENDDE)
-      const rowRegion = normalizeRegion(houseName)
+
+      const houseNameRaw = pickHouseName(row)
+      const houseName =
+        notice?.houseName ||
+        meta?.houseName ||
+        houseNameRaw ||
+        '단지명 확인중'
+
+      const rceptBgnde =
+        notice?.rceptBgnde ||
+        meta?.rceptBgnde ||
+        parseDate(row.RCEPT_BGNDE)
+
+      const rceptEndde =
+        notice?.rceptEndde ||
+        meta?.rceptEndde ||
+        parseDate(row.RCEPT_ENDDE)
+
+      const rowRegion = normalizeRegion(
+        houseName,
+        notice?.address || '',
+        notice?.regionName || ''
+      )
+
       const ym = toYm(rceptBgnde)
 
       const keywordMatch = !keyword || houseName.includes(keyword)
