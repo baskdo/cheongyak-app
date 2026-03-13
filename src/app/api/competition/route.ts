@@ -4,6 +4,8 @@ type CmpetRow = {
   HOUSE_MANAGE_NO?: string
   PBLANC_NO?: string
   HOUSE_NM?: string
+  HSSPLY_NM?: string
+  PBLANC_NM?: string
   HOUSE_TY?: string
   SUPLY_HSHLDCO?: string | number
   REQ_CNT?: string | number
@@ -19,6 +21,8 @@ type SpsplyRow = {
   HOUSE_MANAGE_NO?: string
   PBLANC_NO?: string
   HOUSE_NM?: string
+  HSSPLY_NM?: string
+  PBLANC_NM?: string
   HOUSE_TY?: string
 
   MNYCH_HSHLDCO?: string | number
@@ -138,6 +142,19 @@ function normalizeRegion(houseName: string): string {
   return normalizeRegionFromText(houseName) || '기타'
 }
 
+function pickHouseName(row: {
+  HOUSE_NM?: string
+  HSSPLY_NM?: string
+  PBLANC_NM?: string
+}): string {
+  return String(
+    row.HOUSE_NM ||
+      row.HSSPLY_NM ||
+      row.PBLANC_NM ||
+      ''
+  ).trim()
+}
+
 function normalizeRank(value: string | number | undefined): string {
   const text = String(value ?? '').trim()
 
@@ -233,9 +250,8 @@ function createEmptySpecialAgg(): SpecialAgg {
   }
 }
 
-function addNumber(target: number, value: string | number | undefined): number {
-  const n = Number(value ?? 0)
-  return target + (Number.isFinite(n) ? n : 0)
+function addNumber(target: number, value: number): number {
+  return target + (Number.isFinite(value) ? value : 0)
 }
 
 function toSpecialAggMap(row: SpsplyRow): SpecialAgg {
@@ -379,7 +395,7 @@ export async function GET(request: Request) {
 
       if (!metaMap.has(itemKey)) {
         metaMap.set(itemKey, {
-          houseName: String(row.HOUSE_NM || '').trim(),
+          houseName: pickHouseName(row),
           rceptBgnde: parseDate(row.RCEPT_BGNDE),
           rceptEndde: parseDate(row.RCEPT_ENDDE),
         })
@@ -391,13 +407,13 @@ export async function GET(request: Request) {
     for (const row of competitionRows) {
       const houseManageNo = String(row.HOUSE_MANAGE_NO || '').trim()
       const pblancNo = String(row.PBLANC_NO || '').trim()
-      const houseNameRaw = String(row.HOUSE_NM || '').trim()
+      const houseNameRaw = pickHouseName(row)
       const itemKey = toItemKey(pblancNo, houseManageNo)
 
       if (!itemKey) continue
 
       const meta = metaMap.get(itemKey)
-      const houseName = meta?.houseName || houseNameRaw || itemKey
+      const houseName = meta?.houseName || houseNameRaw || '단지명 확인중'
       const rceptBgnde = meta?.rceptBgnde || parseDate(row.RCEPT_BGNDE)
       const rceptEndde = meta?.rceptEndde || parseDate(row.RCEPT_ENDDE)
       const rowRegion = normalizeRegion(houseName)
