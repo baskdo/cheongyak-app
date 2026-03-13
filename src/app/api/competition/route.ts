@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 type CmpetRow = {
   HOUSE_MANAGE_NO?: string
   PBLANC_NO?: string
@@ -101,9 +103,7 @@ function parseDate(value: string | number | undefined): string {
     return `${normalized.slice(0, 4)}-${normalized.slice(4, 6)}-${normalized.slice(6, 8)}`
   }
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    return normalized
-  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized
 
   return text
 }
@@ -377,9 +377,7 @@ async function fetchNoticeRows(): Promise<NoticeRow[]> {
   for (const endpoint of candidates) {
     try {
       const rows = await fetchPaged<NoticeRow>(endpoint)
-      if (rows.length > 0) {
-        return rows
-      }
+      if (rows.length > 0) return rows
     } catch {
       // 다음 후보 endpoint 시도
     }
