@@ -34,6 +34,9 @@ type SpsplyRow = {
   CRSPAREA_NWBB_NWBBSHR_CNT?: string | number
   CRSPAREA_YGMN_CNT?: string | number
   CRSPAREA_OPS_CNT?: string | number
+
+  RCEPT_BGNDE?: string
+  RCEPT_ENDDE?: string
 }
 
 type HouseTypeRate = {
@@ -55,22 +58,53 @@ type CompetitionItem = {
   houseTypes: HouseTypeRate[]
 }
 
-function valuesOf(row: Record<string, string>): string[] {
-  return Object.values(row)
+type SpecialAgg = {
+  MNYCH_HSHLDCO: number
+  NWWDS_NMTW_HSHLDCO: number
+  LFE_FRST_HSHLDCO: number
+  NWBB_NWBBSHR_HSHLDCO: number
+  YGMN_HSHLDCO: number
+  OLD_PARNTS_SUPORT_HSHLDCO: number
+
+  CRSPAREA_MNYCH_CNT: number
+  CRSPAREA_NWWDS_NMTW_CNT: number
+  CRSPAREA_LFE_FRST_CNT: number
+  CRSPAREA_NWBB_NWBBSHR_CNT: number
+  CRSPAREA_YGMN_CNT: number
+  CRSPAREA_OPS_CNT: number
 }
 
-function getByKeys(
-  row: Record<string, string>,
-  keys: string[],
-  fallbackIndex?: number
-): string {
-  for (const key of keys) {
-    if (row[key] !== undefined && row[key] !== '') return row[key]
+function parseDate(value: string | number | undefined): string {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+
+  const normalized = text.replace(/\./g, '-').replace(/\//g, '-')
+
+  if (/^\d{8}$/.test(normalized)) {
+    return `${normalized.slice(0, 4)}-${normalized.slice(4, 6)}-${normalized.slice(6, 8)}`
   }
 
-  if (fallbackIndex !== undefined) {
-    const vals = valuesOf(row)
-    return vals[fallbackIndex] ?? ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized
+  }
+
+  return text
+}
+
+function toYm(dateStr: string): string {
+  const text = (dateStr || '').trim()
+  if (!text) return ''
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text.slice(0, 7)
+  }
+
+  if (/^\d{4}-\d{2}$/.test(text)) {
+    return text
+  }
+
+  if (/^\d{8}$/.test(text)) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}`
   }
 
   return ''
@@ -100,20 +134,8 @@ function normalizeRegionFromText(source: string): string {
   return ''
 }
 
-function normalizeRegion(value: string, address = '', houseName = ''): string {
-  const fromAddress = normalizeRegionFromText(address)
-  if (fromAddress) return fromAddress
-
-  const text = (value || '').trim()
-  if (text && !/^\d+$/.test(text)) {
-    const fromText = normalizeRegionFromText(text)
-    if (fromText) return fromText
-  }
-
-  const fromHouseName = normalizeRegionFromText(houseName)
-  if (fromHouseName) return fromHouseName
-
-  return '기타'
+function normalizeRegion(houseName: string): string {
+  return normalizeRegionFromText(houseName) || '기타'
 }
 
 function normalizeRank(value: string | number | undefined): string {
@@ -185,63 +207,99 @@ function normalizeRate(
   return rate.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
 }
 
-function parseDate(value: string | undefined): string {
-  const text = (value || '').trim()
-  if (!text) return ''
-
-  const normalized = text.replace(/\./g, '-').replace(/\//g, '-')
-  if (/^\d{8}$/.test(normalized)) {
-    return `${normalized.slice(0, 4)}-${normalized.slice(4, 6)}-${normalized.slice(6, 8)}`
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized
-
-  return text
-}
-
-function toYm(dateStr: string): string {
-  const cleaned = (dateStr || '').replace(/[./]/g, '-')
-
-  if (/^\d{8}$/.test(cleaned)) return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}`
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned.slice(0, 7)
-  if (/^\d{4}-\d{2}$/.test(cleaned)) return cleaned
-
-  return ''
+function toItemKey(pblancNo: string, houseManageNo: string): string {
+  return pblancNo || houseManageNo
 }
 
 function toTypeKey(typeValue: string | undefined): string {
   return String(typeValue || '').trim()
 }
 
-function toItemKey(pblancNo: string, houseManageNo: string): string {
-  return pblancNo || houseManageNo
+function createEmptySpecialAgg(): SpecialAgg {
+  return {
+    MNYCH_HSHLDCO: 0,
+    NWWDS_NMTW_HSHLDCO: 0,
+    LFE_FRST_HSHLDCO: 0,
+    NWBB_NWBBSHR_HSHLDCO: 0,
+    YGMN_HSHLDCO: 0,
+    OLD_PARNTS_SUPORT_HSHLDCO: 0,
+
+    CRSPAREA_MNYCH_CNT: 0,
+    CRSPAREA_NWWDS_NMTW_CNT: 0,
+    CRSPAREA_LFE_FRST_CNT: 0,
+    CRSPAREA_NWBB_NWBBSHR_CNT: 0,
+    CRSPAREA_YGMN_CNT: 0,
+    CRSPAREA_OPS_CNT: 0,
+  }
 }
 
-function toSpsplyMap(row: SpsplyRow): Record<string, string> | undefined {
-  const out: Record<string, string> = {
-    MNYCH_HSHLDCO: String(row.MNYCH_HSHLDCO ?? '0'),
-    NWWDS_NMTW_HSHLDCO: String(row.NWWDS_NMTW_HSHLDCO ?? '0'),
-    LFE_FRST_HSHLDCO: String(row.LFE_FRST_HSHLDCO ?? '0'),
-    NWBB_NWBBSHR_HSHLDCO: String(row.NWBB_NWBBSHR_HSHLDCO ?? '0'),
-    YGMN_HSHLDCO: String(row.YGMN_HSHLDCO ?? '0'),
-    OLD_PARNTS_SUPORT_HSHLDCO: String(row.OLD_PARNTS_SUPORT_HSHLDCO ?? '0'),
+function addNumber(target: number, value: string | number | undefined): number {
+  const n = Number(value ?? 0)
+  return target + (Number.isFinite(n) ? n : 0)
+}
 
-    CRSPAREA_MNYCH_CNT: String(row.CRSPAREA_MNYCH_CNT ?? '0'),
-    CRSPAREA_NWWDS_NMTW_CNT: String(row.CRSPAREA_NWWDS_NMTW_CNT ?? '0'),
-    CRSPAREA_LFE_FRST_CNT: String(row.CRSPAREA_LFE_FRST_CNT ?? '0'),
-    CRSPAREA_NWBB_NWBBSHR_CNT: String(row.CRSPAREA_NWBB_NWBBSHR_CNT ?? '0'),
-    CRSPAREA_YGMN_CNT: String(row.CRSPAREA_YGMN_CNT ?? '0'),
-    CRSPAREA_OPS_CNT: String(row.CRSPAREA_OPS_CNT ?? '0'),
+function toSpecialAggMap(row: SpsplyRow): SpecialAgg {
+  return {
+    MNYCH_HSHLDCO: Number(row.MNYCH_HSHLDCO ?? 0),
+    NWWDS_NMTW_HSHLDCO: Number(row.NWWDS_NMTW_HSHLDCO ?? 0),
+    LFE_FRST_HSHLDCO: Number(row.LFE_FRST_HSHLDCO ?? 0),
+    NWBB_NWBBSHR_HSHLDCO: Number(row.NWBB_NWBBSHR_HSHLDCO ?? 0),
+    YGMN_HSHLDCO: Number(row.YGMN_HSHLDCO ?? 0),
+    OLD_PARNTS_SUPORT_HSHLDCO: Number(row.OLD_PARNTS_SUPORT_HSHLDCO ?? 0),
+
+    CRSPAREA_MNYCH_CNT: Number(row.CRSPAREA_MNYCH_CNT ?? 0),
+    CRSPAREA_NWWDS_NMTW_CNT: Number(row.CRSPAREA_NWWDS_NMTW_CNT ?? 0),
+    CRSPAREA_LFE_FRST_CNT: Number(row.CRSPAREA_LFE_FRST_CNT ?? 0),
+    CRSPAREA_NWBB_NWBBSHR_CNT: Number(row.CRSPAREA_NWBB_NWBBSHR_CNT ?? 0),
+    CRSPAREA_YGMN_CNT: Number(row.CRSPAREA_YGMN_CNT ?? 0),
+    CRSPAREA_OPS_CNT: Number(row.CRSPAREA_OPS_CNT ?? 0),
+  }
+}
+
+function mergeSpecialAgg(target: SpecialAgg, add: SpecialAgg): SpecialAgg {
+  return {
+    MNYCH_HSHLDCO: addNumber(target.MNYCH_HSHLDCO, add.MNYCH_HSHLDCO),
+    NWWDS_NMTW_HSHLDCO: addNumber(target.NWWDS_NMTW_HSHLDCO, add.NWWDS_NMTW_HSHLDCO),
+    LFE_FRST_HSHLDCO: addNumber(target.LFE_FRST_HSHLDCO, add.LFE_FRST_HSHLDCO),
+    NWBB_NWBBSHR_HSHLDCO: addNumber(target.NWBB_NWBBSHR_HSHLDCO, add.NWBB_NWBBSHR_HSHLDCO),
+    YGMN_HSHLDCO: addNumber(target.YGMN_HSHLDCO, add.YGMN_HSHLDCO),
+    OLD_PARNTS_SUPORT_HSHLDCO: addNumber(target.OLD_PARNTS_SUPORT_HSHLDCO, add.OLD_PARNTS_SUPORT_HSHLDCO),
+
+    CRSPAREA_MNYCH_CNT: addNumber(target.CRSPAREA_MNYCH_CNT, add.CRSPAREA_MNYCH_CNT),
+    CRSPAREA_NWWDS_NMTW_CNT: addNumber(target.CRSPAREA_NWWDS_NMTW_CNT, add.CRSPAREA_NWWDS_NMTW_CNT),
+    CRSPAREA_LFE_FRST_CNT: addNumber(target.CRSPAREA_LFE_FRST_CNT, add.CRSPAREA_LFE_FRST_CNT),
+    CRSPAREA_NWBB_NWBBSHR_CNT: addNumber(target.CRSPAREA_NWBB_NWBBSHR_CNT, add.CRSPAREA_NWBB_NWBBSHR_CNT),
+    CRSPAREA_YGMN_CNT: addNumber(target.CRSPAREA_YGMN_CNT, add.CRSPAREA_YGMN_CNT),
+    CRSPAREA_OPS_CNT: addNumber(target.CRSPAREA_OPS_CNT, add.CRSPAREA_OPS_CNT),
+  }
+}
+
+function specialAggToRecord(agg: SpecialAgg): Record<string, string> | undefined {
+  const out: Record<string, string> = {
+    MNYCH_HSHLDCO: String(agg.MNYCH_HSHLDCO),
+    NWWDS_NMTW_HSHLDCO: String(agg.NWWDS_NMTW_HSHLDCO),
+    LFE_FRST_HSHLDCO: String(agg.LFE_FRST_HSHLDCO),
+    NWBB_NWBBSHR_HSHLDCO: String(agg.NWBB_NWBBSHR_HSHLDCO),
+    YGMN_HSHLDCO: String(agg.YGMN_HSHLDCO),
+    OLD_PARNTS_SUPORT_HSHLDCO: String(agg.OLD_PARNTS_SUPORT_HSHLDCO),
+
+    CRSPAREA_MNYCH_CNT: String(agg.CRSPAREA_MNYCH_CNT),
+    CRSPAREA_NWWDS_NMTW_CNT: String(agg.CRSPAREA_NWWDS_NMTW_CNT),
+    CRSPAREA_LFE_FRST_CNT: String(agg.CRSPAREA_LFE_FRST_CNT),
+    CRSPAREA_NWBB_NWBBSHR_CNT: String(agg.CRSPAREA_NWBB_NWBBSHR_CNT),
+    CRSPAREA_YGMN_CNT: String(agg.CRSPAREA_YGMN_CNT),
+    CRSPAREA_OPS_CNT: String(agg.CRSPAREA_OPS_CNT),
   }
 
   const hasAny = Object.values(out).some((v) => Number(v) > 0)
   return hasAny ? out : undefined
 }
 
-async function fetchPaged<ApiType>(
-  endpoint: string
-): Promise<ApiType[]> {
+async function fetchPaged<ApiType>(endpoint: string): Promise<ApiType[]> {
   const key = process.env.ODCLOUD_API_KEY
-  if (!key) throw new Error('ODCLOUD_API_KEY not set')
+  if (!key) {
+    throw new Error('ODCLOUD_API_KEY not set')
+  }
 
   const perPage = 1000
   let page = 1
@@ -299,25 +357,33 @@ export async function GET(request: Request) {
       fetchSpecialSupplyRows(),
     ])
 
-      if (houseManageNo) supplyMap.set(houseManageNo, info)
-      if (pblancNo) supplyMap.set(pblancNo, info)
-    }
-
-    const specialMap = new Map<string, Record<string, string>>()
+    const specialMap = new Map<string, SpecialAgg>()
+    const metaMap = new Map<
+      string,
+      {
+        houseName: string
+        rceptBgnde: string
+        rceptEndde: string
+      }
+    >()
 
     for (const row of specialRows) {
       const pblancNo = String(row.PBLANC_NO || '').trim()
       const houseManageNo = String(row.HOUSE_MANAGE_NO || '').trim()
-      const typeKey = toTypeKey(row.HOUSE_TY)
       const itemKey = toItemKey(pblancNo, houseManageNo)
-
       if (!itemKey) continue
 
-      const spsply = toSpsplyMap(row)
-      if (!spsply) continue
+      const current = specialMap.get(itemKey) || createEmptySpecialAgg()
+      const incoming = toSpecialAggMap(row)
+      specialMap.set(itemKey, mergeSpecialAgg(current, incoming))
 
-      const key = `${itemKey}__${typeKey}`
-      specialMap.set(key, spsply)
+      if (!metaMap.has(itemKey)) {
+        metaMap.set(itemKey, {
+          houseName: String(row.HOUSE_NM || '').trim(),
+          rceptBgnde: parseDate(row.RCEPT_BGNDE),
+          rceptEndde: parseDate(row.RCEPT_ENDDE),
+        })
+      }
     }
 
     const grouped = new Map<string, CompetitionItem>()
@@ -330,28 +396,17 @@ export async function GET(request: Request) {
 
       if (!itemKey) continue
 
-      const supplyInfo =
-        supplyMap.get(pblancNo) ||
-        supplyMap.get(houseManageNo) || {
-          houseName: houseNameRaw,
-          region: normalizeRegion('', '', houseNameRaw),
-          address: '',
-          rceptBgnde: parseDate(String(row.RCEPT_BGNDE || '')),
-          rceptEndde: parseDate(String(row.RCEPT_ENDDE || '')),
-        }
-
-      const houseName = supplyInfo.houseName || houseNameRaw || itemKey
-      const rowRegion = normalizeRegion(
-        supplyInfo.region,
-        supplyInfo.address,
-        houseName
-      )
-      const ym = toYm(supplyInfo.rceptBgnde)
+      const meta = metaMap.get(itemKey)
+      const houseName = meta?.houseName || houseNameRaw || itemKey
+      const rceptBgnde = meta?.rceptBgnde || parseDate(row.RCEPT_BGNDE)
+      const rceptEndde = meta?.rceptEndde || parseDate(row.RCEPT_ENDDE)
+      const rowRegion = normalizeRegion(houseName)
+      const ym = toYm(rceptBgnde)
 
       const keywordMatch = !keyword || houseName.includes(keyword)
       const regionMatch = !region || region === '전체' || rowRegion === region
-      const fromMatch = !yearMonthFrom || (ym && ym >= yearMonthFrom)
-      const toMatch = !yearMonthTo || (ym && ym <= yearMonthTo)
+      const fromMatch = !yearMonthFrom || !ym || ym >= yearMonthFrom
+      const toMatch = !yearMonthTo || !ym || ym <= yearMonthTo
 
       if (!keywordMatch || !regionMatch || !fromMatch || !toMatch) {
         continue
@@ -362,8 +417,8 @@ export async function GET(request: Request) {
           pblancNo: itemKey,
           houseName,
           region: rowRegion,
-          rceptBgnde: supplyInfo.rceptBgnde,
-          rceptEndde: supplyInfo.rceptEndde,
+          rceptBgnde,
+          rceptEndde,
           houseTypes: [],
         })
       }
@@ -375,25 +430,25 @@ export async function GET(request: Request) {
       const reside = normalizeReside(row.RESIDE_SENM, row.RESIDE_SECD)
       const rate = normalizeRate(row.CMPET_RATE, row.REQ_CNT, row.SUPLY_HSHLDCO)
 
-      const houseTypeRow: HouseTypeRate = {
+      grouped.get(itemKey)!.houseTypes.push({
         type: typeKey,
         rate,
         reqCnt,
         suply,
         rank,
         reside,
-      }
-
-      const spsply = specialMap.get(`${itemKey}__${typeKey}`)
-      if (spsply) {
-        houseTypeRow.spsply = spsply
-      }
-
-      grouped.get(itemKey)!.houseTypes.push(houseTypeRow)
+      })
     }
 
     const items = Array.from(grouped.values())
       .map((item) => {
+        const spsplyAgg = specialMap.get(item.pblancNo)
+        const spsply = spsplyAgg ? specialAggToRecord(spsplyAgg) : undefined
+
+        if (spsply && item.houseTypes.length > 0) {
+          item.houseTypes[0].spsply = spsply
+        }
+
         item.houseTypes.sort((a, b) => {
           const typeCompare = a.type.localeCompare(b.type)
           if (typeCompare !== 0) return typeCompare
