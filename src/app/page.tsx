@@ -145,6 +145,23 @@ function formatYm(ym: string) {
   return `${y}년 ${m}월`
 }
 
+// 순위별 공급 합계 계산 시,
+// 같은 주택형이 해당지역/기타지역으로 나뉘어 있어도 공급은 1번만 합산
+function getUniqueSupplyByRank(rows: HouseTypeRate[]) {
+  const supplyMap = new Map<string, number>()
+
+  rows.forEach((h) => {
+    const typeKey = formatHouseType(h.type)
+    const supply = parseInt(h.suply || '0', 10)
+
+    if (!supplyMap.has(typeKey)) {
+      supplyMap.set(typeKey, supply)
+    }
+  })
+
+  return Array.from(supplyMap.values()).reduce((sum, value) => sum + value, 0)
+}
+
 // ===================== 청약공고 카드 =====================
 function ApartmentCard({ item }: { item: ApartmentItem }) {
   return (
@@ -299,8 +316,7 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
   const rank1EtcReq = rank1Rows
     .filter((h) => h.reside !== '해당지역')
     .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
-  const rank1Supply = rank1Rows
-    .reduce((sum, h) => sum + parseInt(h.suply || '0', 10), 0)
+  const rank1Supply = getUniqueSupplyByRank(rank1Rows)
 
   const rank2Rows = item.houseTypes.filter((h) => h.rank === '2')
   const rank2TotalReq = rank2Rows.reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
@@ -310,8 +326,7 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
   const rank2EtcReq = rank2Rows
     .filter((h) => h.reside !== '해당지역')
     .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
-  const rank2Supply = rank2Rows
-    .reduce((sum, h) => sum + parseInt(h.suply || '0', 10), 0)
+  const rank2Supply = getUniqueSupplyByRank(rank2Rows)
 
   const spsplyRow = item.houseTypes.find((h) => h.spsply)?.spsply
   let specialTotalReq = 0
@@ -386,8 +401,8 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         </div>
 
         <div>
-          2순위 (공급 {rank2Supply.toLocaleString()}){' '}
-          <span className="font-bold">{rank2TotalReq.toLocaleString()}건</span>
+          2순위 {' '}
+          <span className="font-bold text-purple-600">{rank2TotalReq.toLocaleString()}건</span>
           <span className="ml-1">접수</span>
         </div>
 
