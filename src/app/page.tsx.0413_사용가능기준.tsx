@@ -624,14 +624,9 @@ export default function Home() {
     setPeriodKey(range.key)
     setYearMonthFrom(range.from)
     setYearMonthTo(range.to)
-    // 앱 시작 시 경쟁률 데이터 백그라운드 프리페치 (탭 클릭 전에 미리 로딩)
-    setTimeout(() => {
-      fetchCompetition('', '전체', range.from, range.to)
-    }, 2000)
   }, [])
 
   useEffect(() => {
-    // 프리페치가 실패했거나 아직 안 됐을 때 보험용
     if (activeTab === 'competition' && !cmpetLoaded && yearMonthFrom && yearMonthTo) {
       fetchCompetition('', '전체', yearMonthFrom, yearMonthTo)
     }
