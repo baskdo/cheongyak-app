@@ -509,6 +509,30 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         )
       })()}
 
+      {/* 하단 버튼: 네이버지도 + 청약홈 상세 */}
+      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
+        <a
+          href={`https://map.naver.com/p/search/${encodeURIComponent(item.houseName)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors shadow-sm"
+          title={`네이버 지도 - ${item.houseName}`}
+        >
+          <img src="/naver-map-logo.png" alt="네이버 지도" className="w-5 h-5 object-contain" />
+          <span className="text-xs font-semibold text-gray-700">네이버지도</span>
+        </a>
+        <a
+          href={`https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?houseManageNo=${item.pblancNo}&pblancNo=${item.pblancNo}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors shadow-sm"
+          title="청약홈 상세정보 (분양가, 공고문 확인)"
+        >
+          <img src="/applyhome-logo.png" alt="청약홈" className="w-5 h-5 object-contain" />
+          <span className="text-xs font-semibold text-gray-700">청약홈 상세</span>
+        </a>
+      </div>
+
     </div>
   )
 }
