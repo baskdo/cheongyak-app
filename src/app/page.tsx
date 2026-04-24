@@ -823,7 +823,7 @@ export default function Home() {
                       setYearMonthTo(range.to)
                       fetchCompetition(keyword, cmpetRegion, range.from, range.to)
                     }}
-                    className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${periodKey === 'recent1y' ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                    className={`filter-btn text-sm px-3 py-1.5 ${periodKey === 'recent1y' ? 'filter-btn-active' : 'filter-btn-inactive'}`}
                   >
                     최근 1년
                   </button>
@@ -839,7 +839,7 @@ export default function Home() {
                           setYearMonthTo(range.to)
                           fetchCompetition(keyword, cmpetRegion, range.from, range.to)
                         }}
-                        className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${periodKey === range.key ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                        className={`filter-btn text-sm px-3 py-1.5 ${periodKey === range.key ? 'filter-btn-active' : 'filter-btn-inactive'}`}
                       >
                         {year}년
                       </button>
