@@ -252,51 +252,44 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
         )}
       </div>
 
-      <div className="flex items-center gap-2 pt-1">
+      <div className="grid grid-cols-3 gap-2 pt-1">
         <a
           href={`https://map.naver.com/p/search/${encodeURIComponent(getMapSearchQuery(item.address, item.name))}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm overflow-hidden"
+          className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors shadow-sm"
           title={`네이버 지도 - ${getMapSearchQuery(item.address, item.name)}`}
         >
           <img
             src="/naver-map-logo.png"
             alt="네이버 지도"
-            className="w-7 h-7 object-contain"
+            className="w-5 h-5 object-contain"
           />
+          <span className="text-xs font-semibold text-gray-700">네이버지도</span>
         </a>
+
         <a
-          href="https://www.applyhome.co.kr"
+          href={item.pdfUrl || 'https://www.applyhome.co.kr'}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm overflow-hidden"
-          title="청약홈"
+          className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors shadow-sm"
+          title="모집공고"
         >
           <img
             src="/applyhome-logo.png"
-            alt="청약홈"
-            className="w-7 h-7 object-contain"
+            alt="모집공고"
+            className="w-5 h-5 object-contain"
           />
+          <span className="text-xs font-semibold text-gray-700">모집공고</span>
         </a>
-        {item.pdfUrl && (
-          <a
-            href={item.pdfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-9 h-9 rounded-full flex items-center justify-center bg-red-50 hover:bg-red-100 transition-colors"
-            title="모집공고"
-          >
-            <span className="text-lg">📄</span>
-          </a>
-        )}
+
         <a
           href={item.hompageUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex-1 text-center text-sm font-semibold bg-gray-900 text-white rounded-xl py-2 hover:bg-gray-700 transition-colors"
+          className="flex items-center justify-center text-xs font-semibold bg-gray-900 text-white rounded-xl py-2 hover:bg-gray-700 transition-colors"
         >
-          공홈
+          공식홈페이지
         </a>
       </div>
     </div>
