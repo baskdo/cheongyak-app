@@ -305,38 +305,14 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 
 // ===================== 경쟁률 카드 =====================
 function CompetitionCard({ item }: { item: CompetitionItem }) {
-  const [expanded, setExpanded] = useState(false)
-
-  const typeGroups: Record<string, HouseTypeRate[]> = {}
-  item.houseTypes.forEach((h) => {
-    const key = formatHouseType(h.type)
-    if (!typeGroups[key]) typeGroups[key] = []
-    typeGroups[key].push(h)
-  })
-
-  const rowOrder = (h: HouseTypeRate) => {
-    const rankOrder = h.rank === '1' ? 1 : h.rank === '2' ? 2 : 3
-    const resideOrder =
-      h.reside === '해당지역' ? 1 :
-      h.reside === '기타지역' ? 2 :
-      h.reside === '기타경기' ? 3 : 9
-
-    return rankOrder * 10 + resideOrder
-  }
-
-  Object.keys(typeGroups).forEach((key) => {
-    typeGroups[key] = [...typeGroups[key]].sort((a, b) => rowOrder(a) - rowOrder(b))
-  })
-
-  const typeKeys = Object.keys(typeGroups)
-  const displayKeys = expanded ? typeKeys : typeKeys.slice(0, 2)
-
-  const maxRate = item.houseTypes
-    .filter((h) => h.rank === '1' && h.reside === '해당지역')
-    .reduce((max, h) => {
-      const r = parseFloat(h.rate)
-      return isNaN(r) ? max : Math.max(max, r)
-    }, 0)
+  // 1순위 평균 경쟁률 계산 (해당지역+기타지역 유효 경쟁률의 평균)
+  const rank1ValidRates = item.houseTypes
+    .filter((h) => h.rank === '1')
+    .map((h) => parseFloat(h.rate))
+    .filter((r) => !isNaN(r) && r > 0)
+  const avgRate = rank1ValidRates.length > 0
+    ? Math.round((rank1ValidRates.reduce((sum, r) => sum + r, 0) / rank1ValidRates.length) * 100) / 100
+    : 0
 
   const rank1Rows = item.houseTypes.filter((h) => h.rank === '1')
   const rank1TotalReq = rank1Rows.reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
@@ -390,12 +366,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
     }, 0)
   }
 
-  const rankLabel: Record<string, string> = {
-    '1': '1순위',
-    '2': '2순위',
-    '3': '특별공급',
-  }
-
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -446,78 +416,22 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         {item.region}
       </p>
 
-      {maxRate > 0 && (
+      {avgRate > 0 && (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500">최고경쟁률</span>
+          <span className="text-xs text-gray-500">1순위 평균경쟁률</span>
           <span
             className={`text-sm font-bold px-2 py-0.5 rounded-full ${
-              maxRate >= 100
+              avgRate >= 100
                 ? 'bg-red-100 text-red-600'
-                : maxRate >= 10
+                : avgRate >= 10
                   ? 'bg-orange-100 text-orange-600'
                   : 'bg-yellow-100 text-yellow-600'
             }`}
           >
-            {maxRate}:1
+            {avgRate.toFixed(2)} : 1
           </span>
-          <span className="text-xs text-gray-400">(1순위 해당지역)</span>
         </div>
       )}
-
-      <div className="border-t border-gray-50 pt-3 space-y-3">
-        {displayKeys.map((typeKey) => {
-          const rows = typeGroups[typeKey]
-
-          return (
-            <div key={typeKey} className="bg-gray-50 rounded-xl p-3">
-              <p className="text-sm font-bold text-blue-600 mb-2">{typeKey}㎡</p>
-              <div className="space-y-1">
-                <div className="grid grid-cols-3 text-xs text-gray-400 px-1 mb-1">
-                  <span>구분</span>
-                  <span className="text-center">공급/신청</span>
-                  <span className="text-right">경쟁률</span>
-                </div>
-
-                {rows.map((h, i) => {
-                  const { label, isDeficit } = formatRate(h.rate)
-                  const isEmpty = h.rate === '-'
-
-                  return (
-                    <div key={i} className="grid grid-cols-3 items-center text-xs bg-white rounded-lg px-2 py-1.5">
-                      <span className="text-gray-500">
-                        {rankLabel[h.rank] || h.rank}
-                        <span className="text-gray-400 ml-1">
-                          (
-                          {h.reside === '해당지역'
-                            ? '해당'
-                            : h.reside === '기타지역'
-                              ? '기타'
-                              : h.reside === '기타경기'
-                                ? '기타경기'
-                                : h.reside}
-                          )
-                        </span>
-                      </span>
-
-                      <span className="text-center text-gray-500">
-                        {parseInt(h.suply || '0', 10).toLocaleString()} / {parseInt(h.reqCnt || '0', 10).toLocaleString()}
-                      </span>
-
-                      <span
-                        className={`text-right font-semibold ${
-                          isEmpty ? 'text-gray-300' : isDeficit ? 'text-gray-400' : 'text-rose-600'
-                        }`}
-                      >
-                        {isEmpty ? '-' : label}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
-      </div>
 
       {(() => {
         const special = item.houseTypes.find((h) => h.spsply)?.spsply
@@ -551,14 +465,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         )
       })()}
 
-      {typeKeys.length > 2 && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="w-full text-xs text-blue-500 hover:text-blue-700 text-center py-1"
-        >
-          {expanded ? '접기 ▲' : `+${typeKeys.length - 2}개 주택형 더보기 ▼`}
-        </button>
-      )}
     </div>
   )
 }
