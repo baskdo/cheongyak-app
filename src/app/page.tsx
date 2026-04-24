@@ -727,9 +727,9 @@ export default function Home() {
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-3">
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2">📍 지역 필터</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-5 sm:flex sm:flex-wrap gap-1.5 sm:gap-2">
                   {REGIONS.map(r => (
-                    <button key={r} onClick={() => setSelectedRegion(r)} className={`filter-btn ${selectedRegion === r ? 'filter-btn-active' : 'filter-btn-inactive'}`}>
+                    <button key={r} onClick={() => setSelectedRegion(r)} className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${selectedRegion === r ? 'filter-btn-active' : 'filter-btn-inactive'}`}>
                       {r}
                     </button>
                   ))}
@@ -796,7 +796,7 @@ export default function Home() {
 
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2">📍 지역 필터</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-5 sm:flex sm:flex-wrap gap-1.5 sm:gap-2">
                   {REGIONS.map(r => (
                     <button
                       key={r}
@@ -804,7 +804,7 @@ export default function Home() {
                         setCmpetRegion(r)
                         fetchCompetition(keyword, r, yearMonthFrom, yearMonthTo)
                       }}
-                      className={`filter-btn ${cmpetRegion === r ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                      className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${cmpetRegion === r ? 'filter-btn-active' : 'filter-btn-inactive'}`}
                     >
                       {r}
                     </button>
