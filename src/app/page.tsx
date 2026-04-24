@@ -680,17 +680,17 @@ export default function Home() {
   })
 
   return (
-    <main className="min-h-screen pb-16">
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm">
+    <main className="min-h-screen pb-16" style={{ backgroundColor: "#03053E" }}>
+      <header className="sticky top-0 z-10 shadow-lg" style={{ backgroundColor: "#03053E", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
         <div className="max-w-5xl mx-auto px-4 py-4 relative">
           <div className="flex items-center justify-center gap-3">
-            <span className="text-4xl">🏢</span>
-            <span className="font-extrabold text-2xl md:text-3xl text-gray-900">청약홈 간략조회_MarU</span>
+            <img src="/icon.ico" alt="청약홈" className="w-10 h-10 object-contain" />
+            <span className="font-extrabold text-2xl md:text-3xl text-white">청약홈 간략조회_MarU</span>
           </div>
 
           <button
             onClick={() => activeTab === 'notice' ? fetchNotice() : fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-blue-300 hover:text-white font-medium flex items-center gap-1"
           >
             🔄 새로고침
           </button>
@@ -699,13 +699,13 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-4 flex gap-0 border-t border-gray-100">
           <button
             onClick={() => setActiveTab('notice')}
-            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'notice' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'notice' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
           >
             📋 청약공고
           </button>
           <button
             onClick={() => setActiveTab('competition')}
-            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'competition' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'competition' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
           >
             📊 경쟁률 조회
           </button>
@@ -714,7 +714,7 @@ export default function Home() {
 
       <div className="max-w-5xl mx-auto px-4 pt-6">
         <div className="text-center mb-6">
-          <p className="text-gray-500 text-sm">복잡한 아파트 청약 공고, 요약된 정보로 쉽고 빠르게 확인하세요.</p>
+          <p className="text-blue-100 text-sm">복잡한 아파트 청약 공고, 요약된 정보로 쉽고 빠르게 확인하세요.</p>
           {isDummy && activeTab === 'notice' && (
             <div className="mt-2 inline-block bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-1.5 rounded-full">
               ⚠️ 현재 샘플 데이터입니다. Vercel 환경변수에 API_KEY를 설정하면 실시간 데이터가 표시됩니다.
@@ -747,7 +747,7 @@ export default function Home() {
               </div>
             </div>
 
-            <p className="text-sm text-gray-500 mb-4">
+            <p className="text-sm text-blue-100 mb-4">
               총 <span className="font-bold text-blue-600">{filteredNotice.length}건</span>의 청약 공고
             </p>
 
@@ -855,7 +855,7 @@ export default function Home() {
               </div>
             </div>
 
-            <p className="text-sm text-gray-500 mb-4">
+            <p className="text-sm text-blue-100 mb-4">
               총 <span className="font-bold text-blue-600">{filteredCmpet.length}건</span>의 경쟁률 데이터
               <span className="text-xs text-gray-400 ml-2">(1순위 해당지역 기준 / {formatYm(yearMonthFrom)} ~ {formatYm(yearMonthTo)})</span>
             </p>
@@ -876,10 +876,10 @@ export default function Home() {
         )}
       </div>
 
-      <footer className="mt-12 text-center text-xs text-gray-400">
+      <footer className="mt-12 text-center text-xs text-blue-200/60">
         <p>데이터 출처: 공공데이터포털 청약홈 API</p>
         <p className="mt-1">
-          <a href="https://www.applyhome.co.kr" target="_blank" rel="noopener noreferrer" className="hover:text-blue-500">
+          <a href="https://www.applyhome.co.kr" target="_blank" rel="noopener noreferrer" className="hover:text-white">
             청약홈 바로가기 →
           </a>
         </p>
