@@ -3,6 +3,16 @@
 import { useEffect, useState, useCallback } from 'react'
 
 // ===================== TYPES =====================
+type TypeDetail = {
+  type: string
+  typeLabel: string
+  supplyArea: number
+  pyeong: number
+  topAmount: number
+  pyeongPrice: number
+  suplyHshldco: number
+}
+
 type ApartmentItem = {
   id: string
   name: string
@@ -23,6 +33,7 @@ type ApartmentItem = {
   maxPrice: string
   houseTypes: string
   cmpetRate: string
+  typeDetails?: TypeDetail[]
 }
 
 type HouseTypeRate = {
@@ -234,6 +245,27 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
                 ? `${formatPrice(item.minPrice)} ~ ${formatPrice(item.maxPrice)}`
                 : formatPrice(item.minPrice || item.maxPrice)}
             </span>
+          </div>
+        )}
+        {item.typeDetails && item.typeDetails.length > 0 && (
+          <div className="bg-gray-50 rounded-lg px-3 py-2 mt-1">
+            <p className="text-xs text-gray-500 mb-1.5">📐 주택형별 (청약홈 최고가 기준)</p>
+            <div className="space-y-1">
+              {item.typeDetails.map((d, i) => (
+                <div key={i} className="flex items-center justify-between gap-1 text-xs">
+                  <span className="font-semibold text-blue-600 shrink-0">{d.typeLabel}㎡</span>
+                  <span className="text-gray-600 shrink-0">{d.pyeong.toFixed(2)}평형</span>
+                  <span className="text-orange-600 font-semibold shrink-0">
+                    최고가 {formatPrice(String(d.topAmount))}
+                  </span>
+                  {d.pyeongPrice > 0 && (
+                    <span className="text-gray-500 shrink-0">
+                      ({d.pyeongPrice.toLocaleString()}만/평)
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         <div className="flex justify-between text-sm">

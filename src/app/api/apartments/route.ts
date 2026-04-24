@@ -2,6 +2,16 @@ import { NextResponse } from 'next/server'
 
 const BASE_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1'
 
+type HouseTypeDetail = {
+  type: string        // 주택형 원본 (예: "059.9000A")
+  typeLabel: string   // 표시용 (예: "59A")
+  supplyArea: number  // 공급면적 (㎡)
+  pyeong: number      // 공급평형 (평, 소수점 2자리)
+  topAmount: number   // 최고 분양가 (만원)
+  pyeongPrice: number // 평당가 (만원/평)
+  suplyHshldco: number // 공급세대수
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const page = searchParams.get('page') || '1'
@@ -25,29 +35,68 @@ export async function GET(request: Request) {
     const data = await res.json()
     const items = data?.data || []
 
-    // 주택형+분양가 API
-    let typeMap: Record<string, { houseTypes: string; minPrice: string; maxPrice: string }> = {}
+    // 주택형+분양가+공급면적 API (perPage를 크게 가져와서 매칭률 ↑)
+    const typeMap: Record<string, {
+      houseTypes: string
+      minPrice: string
+      maxPrice: string
+      details: HouseTypeDetail[]
+    }> = {}
     try {
-      const typeUrl = `${BASE_URL}/getAPTLttotPblancMdl?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=100&returnType=JSON`
+      const typeUrl = `${BASE_URL}/getAPTLttotPblancMdl?serviceKey=${encodeURIComponent(apiKey)}&page=1&perPage=1000&returnType=JSON`
       const typeRes = await fetch(typeUrl, { next: { revalidate: 3600 } })
       if (typeRes.ok) {
         const typeData = await typeRes.json()
-        const typeItems: Record<string, string>[] = typeData?.data || []
+        const typeItems: Record<string, string | number>[] = typeData?.data || []
         typeItems.forEach((t) => {
-          const no = t['PBLANC_NO']
+          const no = String(t['PBLANC_NO'] || '')
           if (!no) return
-          if (!typeMap[no]) typeMap[no] = { houseTypes: '', minPrice: '', maxPrice: '' }
-          const ty = t['HOUSE_TY'] || ''
+          if (!typeMap[no]) typeMap[no] = { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
+
+          const ty = String(t['HOUSE_TY'] || '').trim()
+          const supplyArea = parseFloat(String(t['SUPLY_AR'] || '0'))
+          const topAmount = parseInt(String(t['LTTOT_TOP_AMOUNT'] || '0'))
+          const suplyHshldco = parseInt(String(t['SUPLY_HSHLDCO'] || '0'))
+
+          // 주택형 간단 표기 (084.9878A → 84A)
+          const typeLabel = ty.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, num, suffix) => {
+            return Math.floor(parseFloat(ty)) + String(suffix).toUpperCase()
+          })
+
+          // 공급평형 (㎡ × 0.3025, 소수점 2자리)
+          const pyeong = Math.round(supplyArea * 0.3025 * 100) / 100
+          // 평당가 (만원 / 평, 반올림)
+          const pyeongPrice = pyeong > 0 ? Math.round(topAmount / pyeong) : 0
+
+          // 중복 방지
           if (ty && !typeMap[no].houseTypes.includes(ty)) {
             typeMap[no].houseTypes = typeMap[no].houseTypes ? typeMap[no].houseTypes + ', ' + ty : ty
           }
-          const price = parseInt(t['LTTOT_TOP_AMOUNT'] || '0')
-          if (price > 0) {
+
+          if (topAmount > 0) {
             const curMin = typeMap[no].minPrice ? parseInt(typeMap[no].minPrice) : Infinity
             const curMax = typeMap[no].maxPrice ? parseInt(typeMap[no].maxPrice) : 0
-            if (price < curMin) typeMap[no].minPrice = String(price)
-            if (price > curMax) typeMap[no].maxPrice = String(price)
+            if (topAmount < curMin) typeMap[no].minPrice = String(topAmount)
+            if (topAmount > curMax) typeMap[no].maxPrice = String(topAmount)
           }
+
+          // 상세 목록 추가 (공급면적이 유효할 때만)
+          if (supplyArea > 0) {
+            typeMap[no].details.push({
+              type: ty,
+              typeLabel,
+              supplyArea,
+              pyeong,
+              topAmount,
+              pyeongPrice,
+              suplyHshldco,
+            })
+          }
+        })
+
+        // 주택형 순으로 정렬 (면적 작은 것부터)
+        Object.values(typeMap).forEach((v) => {
+          v.details.sort((a, b) => a.supplyArea - b.supplyArea)
         })
       }
     } catch (e) {
@@ -56,7 +105,7 @@ export async function GET(request: Request) {
 
     const transformed = items.map((item: Record<string, string>) => {
       const no = item['PBLANC_NO'] || String(Math.random())
-      const typeInfo = typeMap[no] || { houseTypes: '', minPrice: '', maxPrice: '' }
+      const typeInfo = typeMap[no] || { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
       return {
         id: no,
         name: item['HOUSE_NM'] || '단지명 없음',
@@ -76,6 +125,7 @@ export async function GET(request: Request) {
         minPrice: typeInfo.minPrice,
         maxPrice: typeInfo.maxPrice,
         houseTypes: typeInfo.houseTypes,
+        typeDetails: typeInfo.details,  // 주택형별 상세 (공급면적, 평당가)
       }
     })
 
@@ -122,6 +172,11 @@ function getDummyData() {
         constructor: '삼성물산', moveInDate: '202712',
         pdfUrl: 'https://www.applyhome.co.kr', minPrice: '85000', maxPrice: '120000',
         houseTypes: '59A, 59B, 84A, 84B',
+        typeDetails: [
+          { type: '059.9000A', typeLabel: '59A', supplyArea: 81.48, pyeong: 24.64, topAmount: 87080, pyeongPrice: 3533, suplyHshldco: 169 },
+          { type: '059.7700B', typeLabel: '59B', supplyArea: 82.13, pyeong: 24.84, topAmount: 85610, pyeongPrice: 3446, suplyHshldco: 47 },
+          { type: '074.6300A', typeLabel: '74A', supplyArea: 100.52, pyeong: 30.41, topAmount: 101960, pyeongPrice: 3353, suplyHshldco: 92 },
+        ],
       },
     ],
     total: 1,
