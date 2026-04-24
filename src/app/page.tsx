@@ -248,9 +248,9 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
           title="청약홈"
         >
           <img
-            src="https://www.google.com/s2/favicons?domain=applyhome.co.kr&sz=64"
+            src="/applyhome-logo.png"
             alt="청약홈"
-            className="w-5 h-5 object-contain"
+            className="w-7 h-7 object-contain"
           />
         </a>
         {item.pdfUrl && (
