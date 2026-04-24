@@ -80,6 +80,28 @@ function formatPrice(price: string): string {
   return `${num.toLocaleString()}만원`
 }
 
+function extractAddressWithNumber(addr: string): string {
+  // 번지가 있는 정확한 주소만 반환. 번지 없으면 빈 문자열.
+  if (!addr) return ''
+  // 괄호 이하 제거
+  let s = addr.replace(/\(.*?\)/g, '').trim()
+  // "일대", "일원", "외 N필지" 제거
+  s = s.replace(/\s*일\s*[대원].*$/g, '').trim()
+  s = s.replace(/\s*외\s*\d+\s*필지.*$/g, '').trim()
+  // 동/읍/면/가/로/길 뒤에 번지(숫자 또는 숫자-숫자)가 있어야만 매치
+  const m = s.match(/^(.+?(?:동|읍|면|리|가|로|길)\s*\d+(?:-\d+)?)/)
+  if (m) return m[1].trim()
+  return ''  // 번지 없으면 빈 문자열
+}
+
+function getMapSearchQuery(address: string, name: string): string {
+  // 1순위: 번지가 있는 정확한 주소
+  const withNumber = extractAddressWithNumber(address)
+  if (withNumber) return withNumber
+  // 2순위: 단지명
+  return name
+}
+
 function formatMoveIn(ym: string): string {
   if (!ym || ym.length < 6) return '-'
   return `${ym.substring(0, 4)}년 ${parseInt(ym.substring(4, 6))}월`
@@ -232,13 +254,17 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 
       <div className="flex items-center gap-2 pt-1">
         <a
-          href={`https://map.naver.com/p/search/${encodeURIComponent(item.address || item.name)}`}
+          href={`https://map.naver.com/p/search/${encodeURIComponent(getMapSearchQuery(item.address, item.name))}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full flex items-center justify-center bg-[#03C75A] hover:bg-[#02b350] transition-colors shadow-sm"
-          title={`네이버 지도 - ${item.address || item.name}`}
+          className="w-9 h-9 rounded-full flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm overflow-hidden"
+          title={`네이버 지도 - ${getMapSearchQuery(item.address, item.name)}`}
         >
-          <span className="text-white font-black text-base leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>N</span>
+          <img
+            src="/naver-map-logo.png"
+            alt="네이버 지도"
+            className="w-7 h-7 object-contain"
+          />
         </a>
         <a
           href="https://www.applyhome.co.kr"
