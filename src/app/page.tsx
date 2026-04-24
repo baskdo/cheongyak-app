@@ -737,9 +737,9 @@ export default function Home() {
               </div>
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2">📋 진행 상태</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-4 sm:flex sm:flex-wrap gap-1.5 sm:gap-2">
                   {STATUSES.map(s => (
-                    <button key={s} onClick={() => setSelectedStatus(s)} className={`filter-btn ${selectedStatus === s ? 'filter-btn-active' : 'filter-btn-inactive'}`}>
+                    <button key={s} onClick={() => setSelectedStatus(s)} className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${selectedStatus === s ? 'filter-btn-active' : 'filter-btn-inactive'}`}>
                       {s}
                     </button>
                   ))}
@@ -814,7 +814,7 @@ export default function Home() {
 
               <div>
                 <p className="text-xs font-semibold text-gray-500 mb-2">🗓 기간 필터</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   <button
                     onClick={() => {
                       const range = getRecent1YearRange(new Date())
@@ -823,7 +823,7 @@ export default function Home() {
                       setYearMonthTo(range.to)
                       fetchCompetition(keyword, cmpetRegion, range.from, range.to)
                     }}
-                    className={`filter-btn ${periodKey === 'recent1y' ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                    className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${periodKey === 'recent1y' ? 'filter-btn-active' : 'filter-btn-inactive'}`}
                   >
                     최근 1년
                   </button>
@@ -839,7 +839,7 @@ export default function Home() {
                           setYearMonthTo(range.to)
                           fetchCompetition(keyword, cmpetRegion, range.from, range.to)
                         }}
-                        className={`filter-btn ${periodKey === range.key ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                        className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${periodKey === range.key ? 'filter-btn-active' : 'filter-btn-inactive'}`}
                       >
                         {year}년
                       </button>
