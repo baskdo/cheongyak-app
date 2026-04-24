@@ -429,7 +429,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
           1순위 (공급 {rank1Supply.toLocaleString()}){' '}
           <span className="font-bold text-red-500">{rank1TotalReq.toLocaleString()}건</span>
           <span className="ml-1">접수</span>
-          <span className="text-gray-400 ml-1 text-[10px]">(해당/기타 합계)</span>
         </div>
 
         <div className="text-gray-500 text-xs">
