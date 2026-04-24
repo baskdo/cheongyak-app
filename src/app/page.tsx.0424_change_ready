@@ -232,26 +232,22 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 
       <div className="flex items-center gap-2 pt-1">
         <a
-          href={`https://map.naver.com/p/search/${encodeURIComponent(item.address || item.name)}`}
+          href={`https://map.naver.com/v5/search/${encodeURIComponent(item.name)}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full flex items-center justify-center bg-[#03C75A] hover:bg-[#02b350] transition-colors shadow-sm"
-          title={`네이버 지도 - ${item.address || item.name}`}
+          className="w-9 h-9 rounded-full flex items-center justify-center bg-green-50 hover:bg-green-100 transition-colors"
+          title="네이버 지도"
         >
-          <span className="text-white font-black text-base leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>N</span>
+          <span className="text-lg">🗺</span>
         </a>
         <a
           href="https://www.applyhome.co.kr"
           target="_blank"
           rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full flex items-center justify-center bg-white border border-gray-200 hover:bg-gray-50 transition-colors shadow-sm overflow-hidden"
+          className="w-9 h-9 rounded-full flex items-center justify-center bg-blue-50 hover:bg-blue-100 transition-colors"
           title="청약홈"
         >
-          <img
-            src="https://www.google.com/s2/favicons?domain=applyhome.co.kr&sz=64"
-            alt="청약홈"
-            className="w-5 h-5 object-contain"
-          />
+          <span className="text-lg">🏠</span>
         </a>
         {item.pdfUrl && (
           <a
