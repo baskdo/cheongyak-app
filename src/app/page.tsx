@@ -305,13 +305,24 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 
 // ===================== 경쟁률 카드 =====================
 function CompetitionCard({ item }: { item: CompetitionItem }) {
-  // 1순위 평균 경쟁률 계산 (해당지역+기타지역 유효 경쟁률의 평균)
-  const rank1ValidRates = item.houseTypes
-    .filter((h) => h.rank === '1')
-    .map((h) => parseFloat(h.rate))
-    .filter((r) => !isNaN(r) && r > 0)
-  const avgRate = rank1ValidRates.length > 0
-    ? Math.round((rank1ValidRates.reduce((sum, r) => sum + r, 0) / rank1ValidRates.length) * 100) / 100
+  // 1순위 전체 평균 경쟁률 = 총 1순위 신청건수 / 총 1순위 공급세대수
+  // 공급세대수는 주택형별로 1개만 카운트 (해당/기타가 중복되므로)
+  const rank1Items = item.houseTypes.filter((h) => h.rank === '1')
+  const rank1TotalReqCnt = rank1Items.reduce(
+    (sum, h) => sum + parseInt(h.reqCnt || '0', 10),
+    0
+  )
+  // 주택형별 공급세대수 (중복 제거)
+  const suplyByType: Record<string, number> = {}
+  rank1Items.forEach((h) => {
+    const key = h.type.trim()
+    if (!(key in suplyByType)) {
+      suplyByType[key] = parseInt(h.suply || '0', 10)
+    }
+  })
+  const rank1TotalSuply = Object.values(suplyByType).reduce((sum, n) => sum + n, 0)
+  const avgRate = rank1TotalSuply > 0
+    ? Math.round((rank1TotalReqCnt / rank1TotalSuply) * 100) / 100
     : 0
 
   const rank1Rows = item.houseTypes.filter((h) => h.rank === '1')
@@ -416,20 +427,28 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
         {item.region}
       </p>
 
-      {avgRate > 0 && (
+      {rank1TotalSuply > 0 && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">1순위 평균경쟁률</span>
           <span
             className={`text-sm font-bold px-2 py-0.5 rounded-full ${
-              avgRate >= 100
+              avgRate >= 10
                 ? 'bg-red-100 text-red-600'
-                : avgRate >= 10
+                : avgRate >= 1
                   ? 'bg-orange-100 text-orange-600'
-                  : 'bg-yellow-100 text-yellow-600'
+                  : avgRate > 0
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : 'bg-gray-100 text-gray-500'
             }`}
           >
             {avgRate.toFixed(2)} : 1
           </span>
+          {avgRate < 1 && avgRate > 0 && (
+            <span className="text-xs text-gray-400">(미달)</span>
+          )}
+          {avgRate === 0 && (
+            <span className="text-xs text-gray-400">(미달)</span>
+          )}
         </div>
       )}
 
