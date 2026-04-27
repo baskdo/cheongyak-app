@@ -2,6 +2,24 @@ import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
+// 청약홈 발표 시간대(평일 19:30~20:30)에는 캐시를 무시하고 실시간 호출
+function getCacheSeconds(): number {
+  const now = new Date()
+  // KST 기준 시간 계산 (UTC+9)
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+  const day = kst.getUTCDay() // 0=일, 1=월~5=금, 6=토
+  const hour = kst.getUTCHours()
+  const minute = kst.getUTCMinutes()
+  const totalMin = hour * 60 + minute
+
+  // 평일(월~금) 19:30 ~ 20:30 → 캐시 0초 (실시간)
+  if (day >= 1 && day <= 5 && totalMin >= 19 * 60 + 30 && totalMin <= 20 * 60 + 30) {
+    return 0
+  }
+  // 그 외엔 1시간 캐시
+  return 3600
+}
+
 type CmpetRow = {
   HOUSE_MANAGE_NO?: string
   PBLANC_NO?: string
@@ -338,7 +356,7 @@ async function fetchPaged<ApiType>(endpoint: string): Promise<ApiType[]> {
       `&page=${page}&perPage=${perPage}&returnType=JSON`
 
     const res = await fetch(url, {
-      next: { revalidate: 600 },
+      next: { revalidate: getCacheSeconds() },
     })
 
     if (!res.ok) {
