@@ -12,10 +12,47 @@ type HouseTypeDetail = {
   suplyHshldco: number // 공급세대수
 }
 
+type ApartmentRow = Record<string, string>
+type TypeRow = Record<string, string | number>
+
+// ===== 페이징 유틸: 끝까지 또는 maxPage까지 가져오기 =====
+async function fetchAllPages<T>(
+  endpoint: string,
+  apiKey: string,
+  fresh = false,
+  maxPage = 30 // 안전장치 (1000건 × 30 = 최대 30,000건)
+): Promise<T[]> {
+  const perPage = 1000
+  const rows: T[] = []
+  let page = 1
+  let done = false
+
+  while (!done && page <= maxPage) {
+    const url = `${BASE_URL}/${endpoint}?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=${perPage}&returnType=JSON`
+    const res = await fetch(url, fresh
+      ? { cache: 'no-store' }
+      : { next: { revalidate: 600 } } // 10분 캐시
+    )
+    if (!res.ok) {
+      console.error(`API error: ${endpoint} page=${page} status=${res.status}`)
+      break
+    }
+    const json = await res.json()
+    const data: T[] = json?.data || []
+    rows.push(...data)
+    if (data.length < perPage) {
+      done = true
+    } else {
+      page += 1
+    }
+  }
+  return rows
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
-  const page = searchParams.get('page') || '1'
-  const perPage = searchParams.get('perPage') || '20'
+  const fresh = searchParams.get('fresh') === '1'
+  const limit = searchParams.get('limit') // 옵션: 'recent' = 최신 1페이지(1000건)만 (구버전 호환)
 
   const apiKey = process.env.API_KEY
   if (!apiKey || apiKey === '여기에_API키_입력') {
@@ -23,87 +60,67 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 메인 공고 API
-    const url = `${BASE_URL}/getAPTLttotPblancDetail?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=${perPage}&returnType=JSON`
-    const res = await fetch(url, { next: { revalidate: 3600 } })
+    // limit=recent면 1페이지만, 아니면 끝까지 (최대 30페이지 = 30,000건)
+    const apartments = limit === 'recent'
+      ? await fetchAllPages<ApartmentRow>('getAPTLttotPblancDetail', apiKey, fresh, 1)
+      : await fetchAllPages<ApartmentRow>('getAPTLttotPblancDetail', apiKey, fresh)
 
-    if (!res.ok) {
-      console.error('API error:', res.status)
-      return NextResponse.json(getDummyData())
-    }
+    // 주택형/분양가/공급면적 — 끝까지 가져옴
+    const types = await fetchAllPages<TypeRow>('getAPTLttotPblancMdl', apiKey, fresh)
 
-    const data = await res.json()
-    const items = data?.data || []
-
-    // 주택형+분양가+공급면적 API (perPage를 크게 가져와서 매칭률 ↑)
     const typeMap: Record<string, {
       houseTypes: string
       minPrice: string
       maxPrice: string
       details: HouseTypeDetail[]
     }> = {}
-    try {
-      const typeUrl = `${BASE_URL}/getAPTLttotPblancMdl?serviceKey=${encodeURIComponent(apiKey)}&page=1&perPage=1000&returnType=JSON`
-      const typeRes = await fetch(typeUrl, { next: { revalidate: 3600 } })
-      if (typeRes.ok) {
-        const typeData = await typeRes.json()
-        const typeItems: Record<string, string | number>[] = typeData?.data || []
-        typeItems.forEach((t) => {
-          const no = String(t['PBLANC_NO'] || '')
-          if (!no) return
-          if (!typeMap[no]) typeMap[no] = { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
 
-          const ty = String(t['HOUSE_TY'] || '').trim()
-          const supplyArea = parseFloat(String(t['SUPLY_AR'] || '0'))
-          const topAmount = parseInt(String(t['LTTOT_TOP_AMOUNT'] || '0'))
-          const suplyHshldco = parseInt(String(t['SUPLY_HSHLDCO'] || '0'))
+    types.forEach((t) => {
+      const no = String(t['PBLANC_NO'] || '')
+      if (!no) return
+      if (!typeMap[no]) typeMap[no] = { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
 
-          // 주택형 간단 표기 (084.9878A → 84A)
-          const typeLabel = ty.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, num, suffix) => {
-            return Math.floor(parseFloat(ty)) + String(suffix).toUpperCase()
-          })
+      const ty = String(t['HOUSE_TY'] || '').trim()
+      const supplyArea = parseFloat(String(t['SUPLY_AR'] || '0'))
+      const topAmount = parseInt(String(t['LTTOT_TOP_AMOUNT'] || '0'))
+      const suplyHshldco = parseInt(String(t['SUPLY_HSHLDCO'] || '0'))
 
-          // 공급평형 (㎡ × 0.3025, 소수점 2자리)
-          const pyeong = Math.round(supplyArea * 0.3025 * 100) / 100
-          // 평당가 (만원 / 평, 반올림)
-          const pyeongPrice = pyeong > 0 ? Math.round(topAmount / pyeong) : 0
+      const typeLabel = ty.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, _num, suffix) => {
+        return Math.floor(parseFloat(ty)) + String(suffix).toUpperCase()
+      })
 
-          // 중복 방지
-          if (ty && !typeMap[no].houseTypes.includes(ty)) {
-            typeMap[no].houseTypes = typeMap[no].houseTypes ? typeMap[no].houseTypes + ', ' + ty : ty
-          }
+      const pyeong = Math.round(supplyArea * 0.3025 * 100) / 100
+      const pyeongPrice = pyeong > 0 ? Math.round(topAmount / pyeong) : 0
 
-          if (topAmount > 0) {
-            const curMin = typeMap[no].minPrice ? parseInt(typeMap[no].minPrice) : Infinity
-            const curMax = typeMap[no].maxPrice ? parseInt(typeMap[no].maxPrice) : 0
-            if (topAmount < curMin) typeMap[no].minPrice = String(topAmount)
-            if (topAmount > curMax) typeMap[no].maxPrice = String(topAmount)
-          }
+      if (ty && !typeMap[no].houseTypes.includes(ty)) {
+        typeMap[no].houseTypes = typeMap[no].houseTypes ? typeMap[no].houseTypes + ', ' + ty : ty
+      }
 
-          // 상세 목록 추가 (공급면적이 유효할 때만)
-          if (supplyArea > 0) {
-            typeMap[no].details.push({
-              type: ty,
-              typeLabel,
-              supplyArea,
-              pyeong,
-              topAmount,
-              pyeongPrice,
-              suplyHshldco,
-            })
-          }
-        })
+      if (topAmount > 0) {
+        const curMin = typeMap[no].minPrice ? parseInt(typeMap[no].minPrice) : Infinity
+        const curMax = typeMap[no].maxPrice ? parseInt(typeMap[no].maxPrice) : 0
+        if (topAmount < curMin) typeMap[no].minPrice = String(topAmount)
+        if (topAmount > curMax) typeMap[no].maxPrice = String(topAmount)
+      }
 
-        // 주택형 순으로 정렬 (면적 작은 것부터)
-        Object.values(typeMap).forEach((v) => {
-          v.details.sort((a, b) => a.supplyArea - b.supplyArea)
+      if (supplyArea > 0) {
+        typeMap[no].details.push({
+          type: ty,
+          typeLabel,
+          supplyArea,
+          pyeong,
+          topAmount,
+          pyeongPrice,
+          suplyHshldco,
         })
       }
-    } catch (e) {
-      console.error('type API error:', e)
-    }
+    })
 
-    const transformed = items.map((item: Record<string, string>) => {
+    Object.values(typeMap).forEach((v) => {
+      v.details.sort((a, b) => a.supplyArea - b.supplyArea)
+    })
+
+    const transformed = apartments.map((item: ApartmentRow) => {
       const no = item['PBLANC_NO'] || String(Math.random())
       const typeInfo = typeMap[no] || { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
       return {
@@ -125,11 +142,14 @@ export async function GET(request: Request) {
         minPrice: typeInfo.minPrice,
         maxPrice: typeInfo.maxPrice,
         houseTypes: typeInfo.houseTypes,
-        typeDetails: typeInfo.details,  // 주택형별 상세 (공급면적, 평당가)
+        typeDetails: typeInfo.details,
       }
     })
 
-    return NextResponse.json({ items: transformed, total: data?.totalCount || 0 })
+    // 공고일 내림차순 정렬 (최신 먼저)
+    transformed.sort((a, b) => (b.pblancDe || '').localeCompare(a.pblancDe || ''))
+
+    return NextResponse.json({ items: transformed, total: transformed.length })
   } catch (error) {
     console.error('Fetch error:', error)
     return NextResponse.json(getDummyData())

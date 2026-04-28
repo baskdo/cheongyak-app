@@ -549,6 +549,73 @@ function isLiveTime(): boolean {
   return totalMin >= 19 * 60 + 30 && totalMin <= 21 * 60
 }
 
+// ===== 접수현황 탭 기간 필터 =====
+type PeriodKey = 'thisweek' | '3m' | '12m' | '2025' | '2024' | '2023' | '2022' | '2021'
+
+const PERIOD_BUTTONS: Array<{ key: PeriodKey; label: string }> = [
+  { key: 'thisweek', label: '이번 주' },
+  { key: '3m', label: '최근 3개월' },
+  { key: '12m', label: '최근 12개월' },
+  { key: '2025', label: '2025년' },
+  { key: '2024', label: '2024년' },
+  { key: '2023', label: '2023년' },
+  { key: '2022', label: '2022년' },
+  { key: '2021', label: '2021년' },
+]
+
+function getPeriodRange(key: string): { start: Date; end: Date; label: string } {
+  const now = new Date()
+
+  if (key === 'thisweek') {
+    const day = now.getDay()
+    const diffToMonday = day === 0 ? -6 : 1 - day
+    const monday = new Date(now)
+    monday.setDate(now.getDate() + diffToMonday)
+    monday.setHours(0, 0, 0, 0)
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    sunday.setHours(23, 59, 59, 999)
+    return { start: monday, end: sunday, label: '이번 주' }
+  }
+
+  if (key === '3m') {
+    const start = new Date(now)
+    start.setMonth(start.getMonth() - 3)
+    start.setHours(0, 0, 0, 0)
+    return { start, end: now, label: '최근 3개월' }
+  }
+
+  if (key === '12m') {
+    const start = new Date(now)
+    start.setMonth(start.getMonth() - 12)
+    start.setHours(0, 0, 0, 0)
+    return { start, end: now, label: '최근 12개월' }
+  }
+
+  // 연도별 (2021~2025)
+  const year = parseInt(key, 10)
+  if (!isNaN(year) && year >= 2000) {
+    const start = new Date(year, 0, 1, 0, 0, 0, 0)
+    const end = new Date(year, 11, 31, 23, 59, 59, 999)
+    return { start, end, label: `${year}년` }
+  }
+
+  // 기본값: 이번 주
+  return getPeriodRange('thisweek')
+}
+
+function isInPeriod(rceptBgnde: string, rceptEndde: string, periodKey: string): boolean {
+  if (!rceptBgnde && !rceptEndde) return false
+  const { start, end } = getPeriodRange(periodKey)
+  // 접수기간이 선택 범위와 겹치면 포함 (시작일 기준 매칭)
+  const rs = rceptBgnde ? new Date(rceptBgnde) : null
+  const re = rceptEndde ? new Date(rceptEndde) : rs
+  if (!rs && !re) return false
+  const startDate = rs || re!
+  const endDate = re || rs!
+  return startDate <= end && endDate >= start
+}
+
 // ===================== 금주 접수현황 카드 =====================
 function ThisWeekCard({
   notice,
@@ -660,17 +727,34 @@ function ThisWeekCard({
 
       {/* 상태 박스 */}
       <div>
-        {!hasSpsplyData && (
-          <div className="bg-blue-50 rounded-xl p-3 text-center">
-            <p className="text-sm font-semibold text-blue-700">⏳ 데이터 대기 중</p>
-            <p className="text-xs text-blue-600 mt-1">접수 후 결과 동기화</p>
-            {notice.przwnerPresnatnDe && (
-              <p className="text-xs text-gray-500 mt-2">
-                예정 발표일: {formatDate(notice.przwnerPresnatnDe)} (저녁 7:30)
-              </p>
-            )}
-          </div>
-        )}
+        {!hasSpsplyData && (() => {
+          // 접수 마감일이 지났는데 데이터가 없는 경우 = 데이터 미제공 (과거 단지)
+          // 마감 전 = 발표 대기 중
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const endDate = notice.rceptEndde ? new Date(notice.rceptEndde) : null
+          const isPast = endDate && endDate < today
+
+          if (isPast) {
+            return (
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-sm font-semibold text-gray-600">ℹ️ 특별공급 데이터 미제공</p>
+                <p className="text-xs text-gray-500 mt-1">청약홈 API 보존 범위를 벗어난 단지일 수 있습니다</p>
+              </div>
+            )
+          }
+          return (
+            <div className="bg-blue-50 rounded-xl p-3 text-center">
+              <p className="text-sm font-semibold text-blue-700">⏳ 데이터 대기 중</p>
+              <p className="text-xs text-blue-600 mt-1">접수 후 결과 동기화</p>
+              {notice.przwnerPresnatnDe && (
+                <p className="text-xs text-gray-500 mt-2">
+                  예정 발표일: {formatDate(notice.przwnerPresnatnDe)} (저녁 7:30)
+                </p>
+              )}
+            </div>
+          )
+        })()}
         {hasSpsplyData && (
           <div className="bg-emerald-50 rounded-xl p-3 text-center">
             <p className="text-sm font-semibold text-emerald-700">✅ 특별공급 접수 결과</p>
@@ -885,13 +969,32 @@ function ThisWeekCard({
         </div>
       )}
 
-      {/* 1순위 데이터 대기 중 안내 (특공은 있으나 1순위 미발표) */}
-      {hasSpsplyData && !hasRank1Data && (
-        <div className="mt-4 bg-rose-50 rounded-xl p-3 text-center">
-          <p className="text-sm font-semibold text-rose-700">⏳ 1순위 청약접수 결과 대기 중</p>
-          <p className="text-xs text-rose-600 mt-1">접수 마감 후 익일 발표됩니다</p>
-        </div>
-      )}
+      {/* 1순위 데이터 안내 */}
+      {!hasRank1Data && (() => {
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const endDate = notice.rceptEndde ? new Date(notice.rceptEndde) : null
+        const isPast = endDate && endDate < today
+
+        if (isPast) {
+          return (
+            <div className="mt-4 bg-gray-50 rounded-xl p-3 text-center">
+              <p className="text-sm font-semibold text-gray-600">ℹ️ 1순위 경쟁률 데이터 미제공</p>
+              <p className="text-xs text-gray-500 mt-1">청약홈 API 보존 범위를 벗어난 단지일 수 있습니다</p>
+            </div>
+          )
+        }
+        // 특공은 있는데 1순위만 없는 경우 = 발표 대기 중
+        if (hasSpsplyData) {
+          return (
+            <div className="mt-4 bg-rose-50 rounded-xl p-3 text-center">
+              <p className="text-sm font-semibold text-rose-700">⏳ 1순위 청약접수 결과 대기 중</p>
+              <p className="text-xs text-rose-600 mt-1">접수 마감 후 익일 발표됩니다</p>
+            </div>
+          )
+        }
+        return null
+      })()}
 
         </div>{/* 오른쪽 컬럼 끝 */}
       </div>{/* 가로 분할 영역 끝 */}
@@ -950,13 +1053,15 @@ export default function Home() {
   const [thisWeekRegion, setThisWeekRegion] = useState('전체')
   const [thisWeekKeyword, setThisWeekKeyword] = useState('')
   const [thisWeekSearchInput, setThisWeekSearchInput] = useState('')
+  const [thisWeekPeriod, setThisWeekPeriod] = useState<string>('thisweek') // 'thisweek' | '3m' | '12m' | '2025' | '2024' | ...
 
   const yearButtons = getFixedYearButtons()
 
-  const fetchNotice = useCallback(async () => {
+  const fetchNotice = useCallback(async (fresh = false) => {
     setLoading(true)
     try {
-      const res = await fetch('/api/apartments?perPage=30')
+      const url = fresh ? '/api/apartments?fresh=1' : '/api/apartments'
+      const res = await fetch(url, fresh ? { cache: 'no-store' } : undefined)
       const data = await res.json()
       setItems(data.items || [])
       setIsDummy(data.isDummy || false)
@@ -1028,19 +1133,22 @@ export default function Home() {
     }
   }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo, fetchSpecialSupply, spsplyItems.length])
 
-  // 금주 접수현황 탭 - 진입 시 청약공고 + 특별공급 + 1순위 경쟁률 fresh 호출
+  // 접수현황 탭 - 진입 시 청약공고 + 특별공급 + 1순위 경쟁률 호출
+  // '이번 주' 선택일 때만 fresh, 그 외에는 캐시 사용
   useEffect(() => {
     if (activeTab !== 'thisweek') return
+    const isThisWeekSelected = thisWeekPeriod === 'thisweek'
     fetchNotice()
-    fetchSpecialSupply(true)
-    // 1순위 데이터는 최근 1년 범위로 fresh 호출 (발표 직후엔 캐시 무력화)
+    fetchSpecialSupply(isThisWeekSelected)
+    // 1순위 데이터는 최근 1년 범위로 호출
     const range = getRecent1YearRange(new Date())
     fetchCompetition('', '전체', range.from, range.to)
-  }, [activeTab, fetchNotice, fetchSpecialSupply, fetchCompetition])
+  }, [activeTab, thisWeekPeriod, fetchNotice, fetchSpecialSupply, fetchCompetition])
 
-  // 발표 시간대(평일 19:30~21:00)엔 30초마다 자동 새로고침
+  // 발표 시간대(평일 19:30~21:00)엔 30초마다 자동 새로고침 — '이번 주' 선택 시에만
   useEffect(() => {
     if (activeTab !== 'thisweek') return
+    if (thisWeekPeriod !== 'thisweek') return
     if (!isLiveTime()) return
 
     const interval = setInterval(() => {
@@ -1051,7 +1159,7 @@ export default function Home() {
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [activeTab, fetchNotice, fetchSpecialSupply, fetchCompetition])
+  }, [activeTab, thisWeekPeriod, fetchNotice, fetchSpecialSupply, fetchCompetition])
 
   const filteredNotice = items.filter(item => {
     const regionMatch = selectedRegion === '전체' || item.region === selectedRegion
@@ -1099,7 +1207,7 @@ export default function Home() {
             onClick={() => setActiveTab('thisweek')}
             className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'thisweek' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
           >
-            📅 금주 접수현황
+            📅 접수현황 조회
           </button>
         </div>
       </header>
@@ -1275,14 +1383,14 @@ export default function Home() {
           <>
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-4">
               <div>
-                <p className="text-sm font-semibold text-gray-700 mb-1">📅 이번 주 접수 단지</p>
+                <p className="text-sm font-semibold text-gray-700 mb-1">📅 접수현황 조회</p>
                 <p className="text-xs text-gray-500">
                   {(() => {
-                    const { start, end } = getThisWeekRange()
-                    return `${formatDate(start.toISOString().slice(0, 10))} ~ ${formatDate(end.toISOString().slice(0, 10))}`
+                    const { start, end, label } = getPeriodRange(thisWeekPeriod)
+                    return `${label} · ${formatDate(start.toISOString().slice(0, 10))} ~ ${formatDate(end.toISOString().slice(0, 10))}`
                   })()}
                 </p>
-                {isLiveTime() && (
+                {thisWeekPeriod === 'thisweek' && isLiveTime() && (
                   <div className="mt-2 inline-flex items-center gap-1.5 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -1342,26 +1450,45 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+
+              {/* 기간 필터 */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-2">🗓 기간 필터</p>
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                  {PERIOD_BUTTONS.map(p => (
+                    <button
+                      key={p.key}
+                      onClick={() => setThisWeekPeriod(p.key)}
+                      className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${thisWeekPeriod === p.key ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                {thisWeekPeriod !== 'thisweek' && (
+                  <p className="text-[10px] text-gray-400 mt-2">
+                    ※ 과거 기간은 데이터 제공 범위에 따라 일부 단지의 특별공급/경쟁률 정보가 누락될 수 있습니다.
+                  </p>
+                )}
+              </div>
             </div>
 
             {(() => {
               const thisWeekItems = items
-                .filter(i => isThisWeekRecept(i.rceptBgnde, i.rceptEndde))
+                .filter(i => isInPeriod(i.rceptBgnde, i.rceptEndde, thisWeekPeriod))
                 .filter(i => thisWeekRegion === '전체' || i.region === thisWeekRegion)
                 .filter(i => !thisWeekKeyword || i.name.includes(thisWeekKeyword))
+              const periodLabel = getPeriodRange(thisWeekPeriod).label
               return (
                 <>
                   <p className="text-sm text-blue-100 mb-4">
                     총 <span className="font-bold text-white">{thisWeekItems.length}건</span>의 단지
-                    {(thisWeekKeyword || thisWeekRegion !== '전체') && (
-                      <span className="text-xs text-blue-200/80 ml-2">
-                        (
-                        {thisWeekRegion !== '전체' && `지역: ${thisWeekRegion}`}
-                        {thisWeekRegion !== '전체' && thisWeekKeyword && ' / '}
-                        {thisWeekKeyword && `검색: ${thisWeekKeyword}`}
-                        )
-                      </span>
-                    )}
+                    <span className="text-xs text-blue-200/80 ml-2">
+                      (기간: {periodLabel}
+                      {thisWeekRegion !== '전체' && ` / 지역: ${thisWeekRegion}`}
+                      {thisWeekKeyword && ` / 검색: ${thisWeekKeyword}`}
+                      )
+                    </span>
                   </p>
                   <div className="flex flex-col gap-4">
                     {loading || spsplyLoading ? (
@@ -1376,7 +1503,7 @@ export default function Home() {
                     ) : (
                       <div className="col-span-3 text-center py-16 text-gray-300">
                         <div className="text-4xl mb-3">📅</div>
-                        <p>이번 주 접수 단지가 없습니다.</p>
+                        <p>{periodLabel} 접수 단지가 없습니다.</p>
                         {(thisWeekKeyword || thisWeekRegion !== '전체') && (
                           <p className="text-xs mt-2 text-gray-400">필터를 초기화해보세요.</p>
                         )}
