@@ -354,7 +354,6 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 
 // ===================== 경쟁률 카드 =====================
 function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; specialSupply: SpecialSupplyItem | null }) {
-  const [expanded, setExpanded] = useState(false)
 
   // 1순위 전체 평균 경쟁률 = 총 1순위 신청건수 / 총 1순위 공급세대수
   // 공급세대수는 주택형별로 1개만 카운트 (해당/기타가 중복되므로)
@@ -396,105 +395,22 @@ function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; speci
     .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
   const rank2Supply = getUniqueSupplyByRank(rank2Rows)
 
-  // ===== 자세히 보기용 가공 데이터 =====
-  // 주택형 라벨 헬퍼
-  const toTypeLabel = (raw: string): string => {
-    const key = (raw || '').trim()
-    if (!key) return ''
-    const n = parseFloat(key)
-    const suffix = key.match(/[A-Za-z]+$/)?.[0] || ''
-    return Math.floor(n) + suffix.toUpperCase()
-  }
-
-  // 1순위/2순위 주택형별 집계 (해당지역/기타지역/소계/경쟁률)
-  const aggregateByType = (rank: '1' | '2') => {
-    const rows = item.houseTypes.filter((h) => h.rank === rank)
-    if (rows.length === 0) return []
-
-    const map = new Map<string, {
-      type: string
-      typeLabel: string
-      suply: number
-      local: number
-      etc: number
-    }>()
-
-    rows.forEach((h) => {
-      const key = (h.type || '').trim()
-      if (!key) return
-      const reqCnt = parseInt(h.reqCnt || '0', 10)
-      const suply = parseInt(h.suply || '0', 10)
-      const isLocal = h.reside === '해당지역'
-
-      if (!map.has(key)) {
-        map.set(key, { type: key, typeLabel: toTypeLabel(key), suply, local: 0, etc: 0 })
-      }
-      const entry = map.get(key)!
-      if (suply > entry.suply) entry.suply = suply
-      if (isLocal) entry.local += reqCnt
-      else entry.etc += reqCnt
-    })
-
-    return Array.from(map.values())
-      .sort((a, b) => a.type.localeCompare(b.type))
-      .map((e) => {
-        const total = e.local + e.etc
-        const rate = e.suply > 0 ? Math.round((total / e.suply) * 100) / 100 : 0
-        return { ...e, total, rate }
-      })
-  }
-
-  const rank1ByType = aggregateByType('1')
-  const rank2ByType = aggregateByType('2')
-
-  // 1순위에서 마감된 경우 2순위 숨김 (모든 주택형이 미달이 아니면 마감된 것으로 판단)
-  // 단, API에서 2순위 행 자체가 없거나 모두 0이면 렌더링 안 함
-  const rank2HasAnyData = rank2ByType.some((r) => r.suply > 0 && r.total > 0)
-  const showRank2 = rank2HasAnyData
-
-  // 특별공급 자세히 보기 데이터: special-supply API 사용 (해당+기타경기+기타지역 합산)
-  const spsplyDetailRows = (() => {
-    if (!specialSupply || specialSupply.houseTypes.length === 0) {
-      return [] as Array<{ name: string; suply: number; cnt: number }>
-    }
-    const generalNames = ['다자녀', '신혼부부', '생애최초', '신생아', '청년', '노부모']
-    const aggMap = new Map<string, { suply: number; cnt: number }>()
-
-    specialSupply.houseTypes.forEach((ht) => {
-      ht.categories.forEach((cat) => {
-        if (!generalNames.includes(cat.name)) return
-        const cur = aggMap.get(cat.name) || { suply: 0, cnt: 0 }
-        cur.suply += cat.suply
-        if (cat.areaData) {
-          cur.cnt += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
-        }
-        aggMap.set(cat.name, cur)
-      })
-    })
-
-    return generalNames
-      .map((name) => {
-        const v = aggMap.get(name) || { suply: 0, cnt: 0 }
-        return { name, suply: v.suply, cnt: v.cnt }
-      })
-      .filter((r) => r.suply > 0)
-  })()
-  const spsplyDetailTotalSuply = spsplyDetailRows.reduce((s, r) => s + r.suply, 0)
-  const spsplyDetailTotalCnt = spsplyDetailRows.reduce((s, r) => s + r.cnt, 0)
-
-  // ===== 특공 합계 (special-supply API 사용 - 해당+기타경기+기타지역 모두 합산, [금주 접수현황]과 동일) =====
+  // ===== 특공 합계 (special-supply API 사용 - [금주 접수현황]과 100% 동일 로직) =====
+  // 일반 6분류: 해당+기타경기+기타지역 합산
+  // 기관추천/이전기관: 결정 건수만 합산 (미결 제외)
   let specialTotalReq = 0
   let specialTotalSupply = 0
 
   if (specialSupply && specialSupply.houseTypes.length > 0) {
-    // 일반 6분류만 합산 (기관추천/이전기관 제외)
-    const generalNames = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년']
     specialSupply.houseTypes.forEach((ht) => {
       ht.categories.forEach((cat) => {
-        if (!generalNames.includes(cat.name)) return
         specialTotalSupply += cat.suply
         if (cat.areaData) {
+          // 일반 6분류 (다자녀/신혼부부/생애최초/노부모/신생아/청년)
           specialTotalReq += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+        } else if (cat.instData) {
+          // 기관추천/이전기관 - 결정 건수만 합산
+          specialTotalReq += cat.instData.결정
         }
       })
     })
@@ -520,7 +436,6 @@ function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; speci
           특공 (공급 {specialTotalSupply.toLocaleString()}){' '}
           <span className="font-bold text-blue-600">{specialTotalReq.toLocaleString()}건</span>
           <span className="ml-1">접수</span>
-          <span className="text-gray-400 ml-1 text-[10px]">(기관/이전 제외)</span>
         </div>
 
         <div>
@@ -574,199 +489,6 @@ function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; speci
         </div>
       )}
 
-      {/* 자세히 보기 토글 */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className={`w-full mt-1 py-2 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${
-          expanded
-            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-            : 'bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100'
-        }`}
-      >
-        <span>📋 자세히 보기</span>
-        <span className={`transition-transform ${expanded ? 'rotate-180' : ''}`}>▼</span>
-      </button>
-
-      {/* 펼침 영역: 특별공급 / 1순위 / 2순위 표 */}
-      {expanded && (
-        <div className="space-y-4 pt-2">
-          {/* 특별공급 표 */}
-          {spsplyDetailRows.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px] border-collapse">
-                  <thead>
-                    <tr className="bg-blue-50 text-gray-700">
-                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">구분</th>
-                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">공급세대</th>
-                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">접수건수</th>
-                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {spsplyDetailRows.map((r) => {
-                      const rate = r.suply > 0 ? Math.round((r.cnt / r.suply) * 100) / 100 : 0
-                      return (
-                        <tr key={r.name} className="hover:bg-gray-50">
-                          <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-blue-700">{r.name}</td>
-                          <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.suply.toLocaleString()}</td>
-                          <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.cnt > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.cnt.toLocaleString()}</td>
-                          <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${rate >= 1 ? 'text-blue-700' : 'text-gray-500'}`}>
-                            {r.suply > 0
-                              ? (rate < 1 ? `미달 (${rate.toFixed(2)})` : `${rate.toFixed(2)} 대 1`)
-                              : '-'}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                    <tr className="bg-amber-50 border-t-2 border-amber-300">
-                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">계</td>
-                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{spsplyDetailTotalSuply.toLocaleString()}</td>
-                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">{spsplyDetailTotalCnt.toLocaleString()}</td>
-                      <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold ${spsplyDetailTotalSuply > 0 && spsplyDetailTotalCnt / spsplyDetailTotalSuply >= 1 ? 'text-blue-700' : 'text-gray-500'}`}>
-                        {spsplyDetailTotalSuply > 0
-                          ? (() => {
-                              const r = Math.round((spsplyDetailTotalCnt / spsplyDetailTotalSuply) * 100) / 100
-                              return r < 1 ? `미달 (${r.toFixed(2)})` : `${r.toFixed(2)} 대 1`
-                            })()
-                          : '-'}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* 1순위 표 */}
-          {rank1ByType.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-rose-600 mb-2">📊 일반공급 1순위 청약접수 현황</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px] border-collapse">
-                  <thead>
-                    <tr className="bg-rose-50 text-gray-700">
-                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">타입</th>
-                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">공급<br/>세대</th>
-                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
-                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
-                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">소계</th>
-                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rank1ByType.map((r) => (
-                      <tr key={r.type} className="hover:bg-gray-50">
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-rose-700">{r.typeLabel}</td>
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.suply.toLocaleString()}</td>
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.local.toLocaleString()}</td>
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.etc.toLocaleString()}</td>
-                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.total.toLocaleString()}</td>
-                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${r.rate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
-                          {r.suply > 0
-                            ? (r.rate < 1 ? `미달 (${r.rate.toFixed(2)})` : `${r.rate.toFixed(2)} 대 1`)
-                            : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                    {(() => {
-                      const tSuply = rank1ByType.reduce((s, r) => s + r.suply, 0)
-                      const tLocal = rank1ByType.reduce((s, r) => s + r.local, 0)
-                      const tEtc = rank1ByType.reduce((s, r) => s + r.etc, 0)
-                      const tTotal = tLocal + tEtc
-                      const tRate = tSuply > 0 ? Math.round((tTotal / tSuply) * 100) / 100 : 0
-                      return (
-                        <tr className="bg-amber-50 border-t-2 border-amber-300">
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">계</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tSuply.toLocaleString()}</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tLocal.toLocaleString()}</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tEtc.toLocaleString()}</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">{tTotal.toLocaleString()}</td>
-                          <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold ${tRate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
-                            {tSuply > 0
-                              ? (tRate < 1 ? `미달 (${tRate.toFixed(2)})` : `${tRate.toFixed(2)} 대 1`)
-                              : '-'}
-                          </td>
-                        </tr>
-                      )
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* 2순위 표 (1순위에서 마감되지 않은 단지만) */}
-          {showRank2 && (
-            <div>
-              <p className="text-xs font-semibold text-purple-600 mb-2">📊 일반공급 2순위 청약접수 현황</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px] border-collapse">
-                  <thead>
-                    <tr className="bg-purple-50 text-gray-700">
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">타입</th>
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">공급<br/>세대</th>
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">소계</th>
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rank2ByType.filter((r) => r.suply > 0).map((r) => (
-                      <tr key={r.type} className="hover:bg-gray-50">
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-purple-700">{r.typeLabel}</td>
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.suply.toLocaleString()}</td>
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.local.toLocaleString()}</td>
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.etc.toLocaleString()}</td>
-                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.total.toLocaleString()}</td>
-                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${r.rate >= 1 ? 'text-purple-700' : 'text-gray-500'}`}>
-                          {r.suply > 0
-                            ? (r.rate < 1 ? `미달 (${r.rate.toFixed(2)})` : `${r.rate.toFixed(2)} 대 1`)
-                            : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                    {(() => {
-                      const filtered = rank2ByType.filter((r) => r.suply > 0)
-                      const tSuply = filtered.reduce((s, r) => s + r.suply, 0)
-                      const tLocal = filtered.reduce((s, r) => s + r.local, 0)
-                      const tEtc = filtered.reduce((s, r) => s + r.etc, 0)
-                      const tTotal = tLocal + tEtc
-                      const tRate = tSuply > 0 ? Math.round((tTotal / tSuply) * 100) / 100 : 0
-                      return (
-                        <tr className="bg-amber-50 border-t-2 border-amber-300">
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">계</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tSuply.toLocaleString()}</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tLocal.toLocaleString()}</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tEtc.toLocaleString()}</td>
-                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">{tTotal.toLocaleString()}</td>
-                          <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold ${tRate >= 1 ? 'text-purple-700' : 'text-gray-500'}`}>
-                            {tSuply > 0
-                              ? (tRate < 1 ? `미달 (${tRate.toFixed(2)})` : `${tRate.toFixed(2)} 대 1`)
-                              : '-'}
-                          </td>
-                        </tr>
-                      )
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1.5">
-                ※ 1순위에서 마감되지 않은 단지만 2순위 표시
-              </p>
-            </div>
-          )}
-
-          {/* 1순위 마감 안내 */}
-          {!showRank2 && rank1ByType.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <p className="text-xs text-gray-600">✅ 1순위에서 마감되어 2순위 청약 미접수</p>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 하단 버튼: 네이버지도 + 청약홈 상세 */}
       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
