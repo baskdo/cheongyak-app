@@ -320,7 +320,7 @@ function specialAggToRecord(agg: SpecialAgg): Record<string, string> | undefined
   return hasAny ? out : undefined
 }
 
-async function fetchPaged<ApiType>(endpoint: string): Promise<ApiType[]> {
+async function fetchPaged<ApiType>(endpoint: string, fresh = false): Promise<ApiType[]> {
   const key = process.env.ODCLOUD_API_KEY
   if (!key) {
     throw new Error('ODCLOUD_API_KEY not set')
@@ -337,9 +337,10 @@ async function fetchPaged<ApiType>(endpoint: string): Promise<ApiType[]> {
       `?serviceKey=${encodeURIComponent(key)}` +
       `&page=${page}&perPage=${perPage}&returnType=JSON`
 
-    const res = await fetch(url, {
-      next: { revalidate: 600 },
-    })
+    const res = await fetch(url, fresh
+      ? { cache: 'no-store' }
+      : { next: { revalidate: 600 } }
+    )
 
     if (!res.ok) {
       throw new Error(`API fetch failed: ${endpoint} ${res.status}`)
@@ -360,15 +361,15 @@ async function fetchPaged<ApiType>(endpoint: string): Promise<ApiType[]> {
   return rows
 }
 
-async function fetchCompetitionRows(): Promise<CmpetRow[]> {
-  return fetchPaged<CmpetRow>('ApplyhomeInfoCmpetRtSvc/v1/getAPTLttotPblancCmpet')
+async function fetchCompetitionRows(fresh = false): Promise<CmpetRow[]> {
+  return fetchPaged<CmpetRow>('ApplyhomeInfoCmpetRtSvc/v1/getAPTLttotPblancCmpet', fresh)
 }
 
-async function fetchSpecialSupplyRows(): Promise<SpsplyRow[]> {
-  return fetchPaged<SpsplyRow>('ApplyhomeInfoCmpetRtSvc/v1/getAPTSpsplyReqstStus')
+async function fetchSpecialSupplyRows(fresh = false): Promise<SpsplyRow[]> {
+  return fetchPaged<SpsplyRow>('ApplyhomeInfoCmpetRtSvc/v1/getAPTSpsplyReqstStus', fresh)
 }
 
-async function fetchNoticeRows(): Promise<NoticeRow[]> {
+async function fetchNoticeRows(fresh = false): Promise<NoticeRow[]> {
   const candidates = [
     'ApplyhomeInfoDetailSvc/v1/getAPTLttotPblancDetail',
     'ApplyhomeInfoDetailSvc/v1/getAPTLttotPblanc',
@@ -376,7 +377,7 @@ async function fetchNoticeRows(): Promise<NoticeRow[]> {
 
   for (const endpoint of candidates) {
     try {
-      const rows = await fetchPaged<NoticeRow>(endpoint)
+      const rows = await fetchPaged<NoticeRow>(endpoint, fresh)
       if (rows.length > 0) return rows
     } catch {
       // 다음 후보 endpoint 시도
@@ -394,11 +395,12 @@ export async function GET(request: Request) {
     const region = (searchParams.get('region') || '').trim()
     const yearMonthFrom = (searchParams.get('yearMonthFrom') || '').trim()
     const yearMonthTo = (searchParams.get('yearMonthTo') || '').trim()
+    const fresh = searchParams.get('fresh') === '1'
 
     const [competitionRows, specialRows, noticeRows] = await Promise.all([
-      fetchCompetitionRows(),
-      fetchSpecialSupplyRows(),
-      fetchNoticeRows(),
+      fetchCompetitionRows(fresh),
+      fetchSpecialSupplyRows(fresh),
+      fetchNoticeRows(fresh),
     ])
 
     const noticeMap = new Map<

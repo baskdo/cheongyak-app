@@ -898,7 +898,7 @@ export default function Home() {
     }
   }, [])
 
-  const fetchCompetition = useCallback(async (kw = '', region = '전체', ymFrom = '', ymTo = '') => {
+  const fetchCompetition = useCallback(async (kw = '', region = '전체', ymFrom = '', ymTo = '', fresh = false) => {
     setCmpetLoading(true)
     try {
       const params = new URLSearchParams()
@@ -906,8 +906,9 @@ export default function Home() {
       if (region !== '전체') params.set('region', region)
       if (ymFrom) params.set('yearMonthFrom', ymFrom)
       if (ymTo) params.set('yearMonthTo', ymTo)
+      if (fresh) params.set('fresh', '1')
 
-      const res = await fetch(`/api/competition?${params.toString()}`)
+      const res = await fetch(`/api/competition?${params.toString()}`, { cache: 'no-store' })
       const data = await res.json()
       setCmpetItems(data.items || [])
       setCmpetLoaded(true)
@@ -940,16 +941,24 @@ export default function Home() {
     }
   }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo])
 
+  // 금주 접수현황 탭 - 항상 최신 데이터를 가져옴 (캐시 무력화)
+  useEffect(() => {
+    if (activeTab !== 'thisweek') return
+    if (!yearMonthFrom || !yearMonthTo) return
+    // 탭 진입 즉시 최신 데이터 호출
+    fetchNotice()
+    fetchCompetition('', '전체', yearMonthFrom, yearMonthTo, true)
+  }, [activeTab, yearMonthFrom, yearMonthTo, fetchNotice, fetchCompetition])
+
   // 금주 접수현황 탭 - 발표 시간대(평일 19:30~21:00)에 30초마다 자동 새로고침
   useEffect(() => {
     if (activeTab !== 'thisweek') return
     if (!isLiveTime()) return
 
     const interval = setInterval(() => {
-      // 청약공고와 경쟁률 둘 다 새로 가져오기
       fetchNotice()
       if (yearMonthFrom && yearMonthTo) {
-        fetchCompetition('', '전체', yearMonthFrom, yearMonthTo)
+        fetchCompetition('', '전체', yearMonthFrom, yearMonthTo, true)
       }
     }, 30000) // 30초
 
