@@ -648,7 +648,7 @@ function ThisWeekCard({
   const captureRank1Ref = useRef<HTMLDivElement>(null)
   const [capturing, setCapturing] = useState<'spsply' | 'rank1' | null>(null)
 
-  // 캡처 → PNG 다운로드
+  // 캡처 → 공유(Web Share API 우선) 또는 다운로드 fallback
   const downloadCapture = async (type: 'spsply' | 'rank1') => {
     const ref = type === 'spsply' ? captureSpsplyRef : captureRank1Ref
     if (!ref.current) return
@@ -659,34 +659,77 @@ function ThisWeekCard({
       const html2canvasModule = await import('html2canvas')
       const html2canvas = html2canvasModule.default
 
-      const canvas = await html2canvas(ref.current, {
+      // 캡처 대상 요소의 실제 크기 측정 (상단 잘림 방지)
+      const target = ref.current
+      const rect = target.getBoundingClientRect()
+      const canvas = await html2canvas(target, {
         backgroundColor: '#ffffff',
         scale: 2, // 2배 해상도로 깔끔하게
         useCORS: true,
         logging: false,
+        width: rect.width,
+        height: rect.height,
+        windowWidth: 800, // 캡처 영역(760px)보다 약간 크게 - 좌우 여유
+        scrollX: 0,
+        scrollY: 0,
       })
 
-      // PNG로 변환 후 다운로드
-      canvas.toBlob((blob) => {
-        if (!blob) return
-        const today = new Date()
-        const yyyy = today.getFullYear()
-        const mm = String(today.getMonth() + 1).padStart(2, '0')
-        const dd = String(today.getDate()).padStart(2, '0')
-        const dateStr = `${yyyy}-${mm}-${dd}`
-        const cleanName = (notice.name || '단지').replace(/[\\/:*?"<>|]/g, '_')
-        const typeLabel = type === 'spsply' ? '특공' : '1순위'
-        const filename = `${cleanName}_${typeLabel}_${dateStr}.png`
+      // PNG Blob 생성
+      const blob: Blob | null = await new Promise((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/png')
+      })
+      if (!blob) {
+        throw new Error('이미지 변환 실패')
+      }
 
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      }, 'image/png')
+      // 파일명 구성
+      const today = new Date()
+      const yyyy = today.getFullYear()
+      const mm = String(today.getMonth() + 1).padStart(2, '0')
+      const dd = String(today.getDate()).padStart(2, '0')
+      const dateStr = `${yyyy}-${mm}-${dd}`
+      const cleanName = (notice.name || '단지').replace(/[\\/:*?"<>|]/g, '_')
+      const typeLabel = type === 'spsply' ? '특공' : '1순위'
+      const filename = `${cleanName}_${typeLabel}_${dateStr}.png`
+
+      // 1) Web Share API 시도 — 파일 공유 가능 시 OS 공유 시트 호출
+      const file = new File([blob], filename, { type: 'image/png' })
+      const shareData: ShareData = {
+        files: [file],
+        title: `${notice.name} ${typeLabel} 접수결과`,
+        text: `${notice.name} - ${typeLabel} 청약접수 현황`,
+      }
+
+      // navigator.canShare가 있고 파일 공유가 가능하면 시도
+      if (
+        typeof navigator !== 'undefined' &&
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare(shareData)
+      ) {
+        try {
+          await navigator.share(shareData)
+          // 공유 성공 또는 사용자가 취소한 경우도 여기에 도달 (에러 안 던짐)
+          return
+        } catch (shareErr: unknown) {
+          // 사용자가 명시적으로 취소(AbortError)면 조용히 종료
+          if (shareErr instanceof Error && shareErr.name === 'AbortError') {
+            return
+          }
+          // 그 외의 에러 (권한 거부 등)는 다운로드로 fallback
+          console.warn('공유 실패, 다운로드로 전환:', shareErr)
+        }
+      }
+
+      // 2) Fallback — 일반 다운로드 (브라우저 다운로드 폴더에 저장됨)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
     } catch (e) {
       console.error('캡처 실패:', e)
       alert('이미지 생성에 실패했습니다. 잠시 후 다시 시도해주세요.')
@@ -846,7 +889,7 @@ function ThisWeekCard({
               </button>
             </div>
             <p className="text-[10px] text-gray-500 text-center mt-2">
-              💡 다운로드된 이미지를 카톡에 첨부해서 보고하세요
+              💡 버튼을 누르면 카톡 등으로 바로 공유할 수 있어요
             </p>
           </div>
         )}
@@ -1093,34 +1136,25 @@ function ThisWeekCard({
       {/* ============================================================ */}
       <div
         style={{
-          position: 'absolute',
+          position: 'fixed', // absolute → fixed로 변경 (스크롤 영향 안 받음)
           left: '-99999px',
-          top: 0,
-          width: '760px',
+          top: '0px',
+          width: '800px',
           pointerEvents: 'none',
+          zIndex: -1,
         }}
         aria-hidden="true"
       >
         {/* === 특공 캡처용 === */}
         {hasSpsplyData && specialSupply && (
-          <div ref={captureSpsplyRef} style={{ width: '760px', padding: '24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif' }}>
-            {/* 헤더: 단지명 + 접수기간 + 상태 */}
+          <div ref={captureSpsplyRef} style={{ width: '760px', padding: '32px 24px 24px 24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif', boxSizing: 'border-box' }}>
+            {/* 헤더: 단지명 + 지역/주소 */}
             <div style={{ borderBottom: '2px solid #2563eb', paddingBottom: '12px', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
-                    📍 {notice.region} · {notice.address || ''}
-                  </div>
-                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>
-                    {notice.name}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', color: '#6b7280' }}>접수기간</div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1d4ed8' }}>
-                    {formatDate(notice.rceptBgnde)} ~ {formatDate(notice.rceptEndde)}
-                  </div>
-                </div>
+              <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                📍 {notice.region} · {notice.address || ''}
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>
+                {notice.name}
               </div>
             </div>
 
@@ -1229,24 +1263,14 @@ function ThisWeekCard({
 
         {/* === 1순위 캡처용 === */}
         {hasRank1Data && (
-          <div ref={captureRank1Ref} style={{ width: '760px', padding: '24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif' }}>
-            {/* 헤더 */}
+          <div ref={captureRank1Ref} style={{ width: '760px', padding: '32px 24px 24px 24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif', boxSizing: 'border-box' }}>
+            {/* 헤더: 단지명 + 지역/주소 */}
             <div style={{ borderBottom: '2px solid #e11d48', paddingBottom: '12px', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
-                    📍 {notice.region} · {notice.address || ''}
-                  </div>
-                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>
-                    {notice.name}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '11px', color: '#6b7280' }}>접수기간</div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#be123c' }}>
-                    {formatDate(notice.rceptBgnde)} ~ {formatDate(notice.rceptEndde)}
-                  </div>
-                </div>
+              <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                📍 {notice.region} · {notice.address || ''}
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>
+                {notice.name}
               </div>
             </div>
 
