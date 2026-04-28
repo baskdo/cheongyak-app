@@ -1180,17 +1180,15 @@ function ThisWeekCard({
                 <col style={{ width: '70px' }} />{/* 총접수 */}
               </colgroup>
               <thead>
+                {/* 단일 행 헤더 (rowSpan/colSpan 제거 - html2canvas 호환성) */}
                 <tr style={{ backgroundColor: '#dbeafe', color: '#374151' }}>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3, whiteSpace: 'nowrap' }} rowSpan={2}>주택형</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3 }} rowSpan={2}>공급<br/>세대</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3, whiteSpace: 'nowrap' }} rowSpan={2}>구분</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }} colSpan={8}>특별공급 구분</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3 }} rowSpan={2}>총<br/>접수</th>
-                </tr>
-                <tr style={{ backgroundColor: '#dbeafe', color: '#4b5563' }}>
+                  <th style={{ border: '1px solid #93c5fd', padding: '10px 4px', fontWeight: 600, whiteSpace: 'nowrap' }}>주택형</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '10px 4px', fontWeight: 600, whiteSpace: 'nowrap' }}>공급</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '10px 4px', fontWeight: 600, whiteSpace: 'nowrap' }}>구분</th>
                   {['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관'].map((label, i) => (
-                    <th key={i} style={{ border: '1px solid #93c5fd', padding: '6px 2px', fontWeight: 500, verticalAlign: 'middle', whiteSpace: 'nowrap', fontSize: '11px' }}>{label}</th>
+                    <th key={i} style={{ border: '1px solid #93c5fd', padding: '10px 2px', fontWeight: 600, whiteSpace: 'nowrap', fontSize: '11px' }}>{label}</th>
                   ))}
+                  <th style={{ border: '1px solid #93c5fd', padding: '10px 4px', fontWeight: 600, whiteSpace: 'nowrap' }}>총접수</th>
                 </tr>
               </thead>
               <tbody>
@@ -1211,27 +1209,30 @@ function ThisWeekCard({
                   const totalReceived = receivedRow.reduce((s, n) => s + n, 0)
                   return [
                     <tr key={`${ht.type}-1`}>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: '#1d4ed8', verticalAlign: 'middle', whiteSpace: 'nowrap' }} rowSpan={2}>
+                      <td style={{ borderTop: '1px solid #e5e7eb', borderLeft: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', padding: '8px 4px 2px 4px', textAlign: 'center', fontWeight: 600, color: '#1d4ed8', whiteSpace: 'nowrap' }}>
                         {ht.typeLabel}㎡
                       </td>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }} rowSpan={2}>
+                      <td style={{ borderTop: '1px solid #e5e7eb', borderLeft: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', padding: '8px 4px 2px 4px', textAlign: 'center', color: '#4b5563' }}>
                         {ht.spsplyHshldco.toLocaleString()}
                       </td>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#6b7280', fontSize: '10px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>배정</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#6b7280', fontSize: '10px', whiteSpace: 'nowrap' }}>배정</td>
                       {assignedRow.map((val, i) => (
-                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px 2px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{val ? val.toLocaleString() : '-'}</td>
+                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px 2px', textAlign: 'center', color: '#4b5563' }}>{val ? val.toLocaleString() : '-'}</td>
                       ))}
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: '#ea580c', verticalAlign: 'middle' }} rowSpan={2}>
+                      <td style={{ borderTop: '1px solid #e5e7eb', borderLeft: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', padding: '8px 4px 2px 4px', textAlign: 'center', fontWeight: 700, color: '#ea580c' }}>
                         {totalReceived.toLocaleString()}
                       </td>
                     </tr>,
                     <tr key={`${ht.type}-2`}>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#374151', fontSize: '10px', fontWeight: 600, backgroundColor: '#dbeafe', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>접수</td>
+                      <td style={{ borderBottom: '1px solid #e5e7eb', borderLeft: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', padding: '0' }}></td>
+                      <td style={{ borderBottom: '1px solid #e5e7eb', borderLeft: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', padding: '0' }}></td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#374151', fontSize: '10px', fontWeight: 600, backgroundColor: '#dbeafe', whiteSpace: 'nowrap' }}>접수</td>
                       {receivedRow.map((val, i) => (
-                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px 2px', textAlign: 'center', fontWeight: 600, color: val > 0 ? '#1d4ed8' : '#9ca3af', verticalAlign: 'middle' }}>
+                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px 2px', textAlign: 'center', fontWeight: 600, color: val > 0 ? '#1d4ed8' : '#9ca3af' }}>
                           {val ? val.toLocaleString() : '-'}
                         </td>
                       ))}
+                      <td style={{ borderBottom: '1px solid #e5e7eb', borderLeft: '1px solid #e5e7eb', borderRight: '1px solid #e5e7eb', padding: '0' }}></td>
                     </tr>
                   ]
                 })}
