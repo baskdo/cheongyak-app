@@ -1155,9 +1155,10 @@ export default function Home() {
     setPeriodKey(range.key)
     setYearMonthFrom(range.from)
     setYearMonthTo(range.to)
-    // 앱 시작 시 경쟁률 데이터 백그라운드 프리페치 (탭 클릭 전에 미리 로딩)
+    // 앱 시작 시 경쟁률 + 특공 데이터 백그라운드 프리페치 (탭 클릭 전에 미리 로딩)
     setTimeout(() => {
       fetchCompetition('', '전체', range.from, range.to)
+      fetchSpecialSupply(false) // 캐시 활용 (10분)
     }, 2000)
   }, [])
 
