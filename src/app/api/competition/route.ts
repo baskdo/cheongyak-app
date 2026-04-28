@@ -531,60 +531,13 @@ export async function GET(request: Request) {
       })
     }
 
-    // specialMap에만 있고 grouped에 없는 단지 추가 (특별공급 데이터만 있는 경우)
-    for (const [itemKey] of specialMap) {
-      if (grouped.has(itemKey)) continue
-
-      const notice = noticeMap.get(itemKey)
-      const meta = metaMap.get(itemKey)
-
-      const houseName = notice?.houseName || meta?.houseName || '단지명 확인중'
-      const rceptBgnde = notice?.rceptBgnde || meta?.rceptBgnde || ''
-      const rceptEndde = notice?.rceptEndde || meta?.rceptEndde || ''
-      const rowRegion = normalizeRegion(
-        houseName,
-        notice?.address || '',
-        notice?.regionName || ''
-      )
-
-      const ym = toYm(rceptBgnde)
-      const keywordMatch = !keyword || houseName.includes(keyword)
-      const regionMatch = !region || region === '전체' || rowRegion === region
-      const fromMatch = !yearMonthFrom || !ym || ym >= yearMonthFrom
-      const toMatch = !yearMonthTo || !ym || ym <= yearMonthTo
-
-      if (!keywordMatch || !regionMatch || !fromMatch || !toMatch) continue
-
-      grouped.set(itemKey, {
-        pblancNo: itemKey,
-        houseName,
-        region: rowRegion,
-        rceptBgnde,
-        rceptEndde,
-        houseTypes: [],  // 1·2순위 데이터는 없음, 특별공급은 아래에서 추가됨
-      })
-    }
-
     const items = Array.from(grouped.values())
       .map((item) => {
         const spsplyAgg = specialMap.get(item.pblancNo)
         const spsply = spsplyAgg ? specialAggToRecord(spsplyAgg) : undefined
 
-        if (spsply) {
-          if (item.houseTypes.length > 0) {
-            item.houseTypes[0].spsply = spsply
-          } else {
-            // 1·2순위 데이터가 없을 때 - 특별공급만 표시할 더미 항목 추가
-            item.houseTypes.push({
-              type: '',
-              rate: '-',
-              reqCnt: '0',
-              suply: '0',
-              rank: '',
-              reside: '',
-              spsply,
-            })
-          }
+        if (spsply && item.houseTypes.length > 0) {
+          item.houseTypes[0].spsply = spsply
         }
 
         item.houseTypes.sort((a, b) => {

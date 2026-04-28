@@ -271,9 +271,9 @@ export async function GET(request: Request) {
     }
 
     // 주택형별 정렬
-    for (const item of grouped.values()) {
+    Array.from(grouped.values()).forEach((item) => {
       item.houseTypes.sort((a, b) => a.type.localeCompare(b.type))
-    }
+    })
 
     const items = Array.from(grouped.values())
       .sort((a, b) => (b.rceptBgnde || '').localeCompare(a.rceptBgnde || ''))
