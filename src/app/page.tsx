@@ -1164,18 +1164,32 @@ function ThisWeekCard({
             </div>
 
             {/* 표 (가로 폭 풀 활용) */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '64px' }} />
+                <col style={{ width: '52px' }} />
+                <col style={{ width: '44px' }} />
+                <col style={{ width: '60px' }} />{/* 다자녀 */}
+                <col style={{ width: '60px' }} />{/* 신혼부부 */}
+                <col style={{ width: '60px' }} />{/* 생애최초 */}
+                <col style={{ width: '60px' }} />{/* 노부모 */}
+                <col style={{ width: '60px' }} />{/* 신생아 */}
+                <col style={{ width: '60px' }} />{/* 청년 */}
+                <col style={{ width: '60px' }} />{/* 기관추천 */}
+                <col style={{ width: '60px' }} />{/* 이전기관 */}
+                <col style={{ width: '70px' }} />{/* 총접수 */}
+              </colgroup>
               <thead>
                 <tr style={{ backgroundColor: '#dbeafe', color: '#374151' }}>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>주택형</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>공급<br/>세대</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>구분</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} colSpan={8}>특별공급 구분</th>
-                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>총<br/>접수</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3, whiteSpace: 'nowrap' }} rowSpan={2}>주택형</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3 }} rowSpan={2}>공급<br/>세대</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3, whiteSpace: 'nowrap' }} rowSpan={2}>구분</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }} colSpan={8}>특별공급 구분</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', lineHeight: 1.3 }} rowSpan={2}>총<br/>접수</th>
                 </tr>
                 <tr style={{ backgroundColor: '#dbeafe', color: '#4b5563' }}>
                   {['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관'].map((label, i) => (
-                    <th key={i} style={{ border: '1px solid #93c5fd', padding: '6px 4px', fontWeight: 500 }}>{label}</th>
+                    <th key={i} style={{ border: '1px solid #93c5fd', padding: '6px 2px', fontWeight: 500, verticalAlign: 'middle', whiteSpace: 'nowrap', fontSize: '11px' }}>{label}</th>
                   ))}
                 </tr>
               </thead>
@@ -1197,24 +1211,24 @@ function ThisWeekCard({
                   const totalReceived = receivedRow.reduce((s, n) => s + n, 0)
                   return [
                     <tr key={`${ht.type}-1`}>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center', fontWeight: 600, color: '#1d4ed8' }} rowSpan={2}>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: '#1d4ed8', verticalAlign: 'middle', whiteSpace: 'nowrap' }} rowSpan={2}>
                         {ht.typeLabel}㎡
                       </td>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center', color: '#4b5563' }} rowSpan={2}>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }} rowSpan={2}>
                         {ht.spsplyHshldco.toLocaleString()}
                       </td>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#6b7280', fontSize: '10px' }}>배정</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#6b7280', fontSize: '10px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>배정</td>
                       {assignedRow.map((val, i) => (
-                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#4b5563' }}>{val ? val.toLocaleString() : '-'}</td>
+                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px 2px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{val ? val.toLocaleString() : '-'}</td>
                       ))}
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center', fontWeight: 700, color: '#ea580c' }} rowSpan={2}>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: '#ea580c', verticalAlign: 'middle' }} rowSpan={2}>
                         {totalReceived.toLocaleString()}
                       </td>
                     </tr>,
                     <tr key={`${ht.type}-2`}>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#374151', fontSize: '10px', fontWeight: 600, backgroundColor: '#dbeafe' }}>접수</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#374151', fontSize: '10px', fontWeight: 600, backgroundColor: '#dbeafe', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>접수</td>
                       {receivedRow.map((val, i) => (
-                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', fontWeight: 600, color: val > 0 ? '#1d4ed8' : '#9ca3af' }}>
+                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px 2px', textAlign: 'center', fontWeight: 600, color: val > 0 ? '#1d4ed8' : '#9ca3af', verticalAlign: 'middle' }}>
                           {val ? val.toLocaleString() : '-'}
                         </td>
                       ))}
@@ -1237,15 +1251,15 @@ function ThisWeekCard({
                   const grandTotal = categoryTotals.reduce((s, n) => s + n, 0)
                   return (
                     <tr style={{ backgroundColor: '#fef3c7', borderTop: '2px solid #fbbf24' }}>
-                      <td style={{ border: '1px solid #fcd34d', padding: '8px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>합계</td>
-                      <td style={{ border: '1px solid #fcd34d', padding: '8px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{totalSupply.toLocaleString()}</td>
-                      <td style={{ border: '1px solid #fcd34d', padding: '6px', textAlign: 'center', fontWeight: 700, color: '#92400e', fontSize: '10px' }}>접수</td>
+                      <td style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>합계</td>
+                      <td style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{totalSupply.toLocaleString()}</td>
+                      <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', fontSize: '10px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>접수</td>
                       {categoryTotals.map((val, i) => (
-                        <td key={i} style={{ border: '1px solid #fcd34d', padding: '6px', textAlign: 'center', fontWeight: 700, color: val > 0 ? '#dc2626' : '#9ca3af' }}>
+                        <td key={i} style={{ border: '1px solid #fcd34d', padding: '6px 2px', textAlign: 'center', fontWeight: 700, color: val > 0 ? '#dc2626' : '#9ca3af', verticalAlign: 'middle' }}>
                           {val ? val.toLocaleString() : '-'}
                         </td>
                       ))}
-                      <td style={{ border: '1px solid #fcd34d', padding: '8px 6px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', fontSize: '14px', backgroundColor: '#fee2e2' }}>
+                      <td style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', fontSize: '14px', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>
                         {grandTotal.toLocaleString()}
                       </td>
                     </tr>
@@ -1280,26 +1294,34 @@ function ThisWeekCard({
             </div>
 
             {/* 1순위 표 */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '90px' }} />
+                <col style={{ width: '100px' }} />
+                <col style={{ width: '110px' }} />
+                <col style={{ width: '110px' }} />
+                <col style={{ width: '100px' }} />
+                <col style={{ width: '' }} />{/* 경쟁률은 가변 */}
+              </colgroup>
               <thead>
                 <tr style={{ backgroundColor: '#ffe4e6', color: '#374151' }}>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>타입</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>공급세대</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>해당지역</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>기타지역</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>소계</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>경쟁률</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>타입</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>공급세대</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>해당지역</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>기타지역</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>소계</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>경쟁률</th>
                 </tr>
               </thead>
               <tbody>
                 {rank1ByType.map((r) => (
                   <tr key={r.type}>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', fontWeight: 600, color: '#be123c' }}>{r.typeLabel}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', color: '#4b5563' }}>{r.suply.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', color: '#4b5563' }}>{r.local.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', color: '#4b5563' }}>{r.etc.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', fontWeight: 700, color: r.total > 0 ? '#dc2626' : '#9ca3af' }}>{r.total.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', fontWeight: 600, color: r.rate >= 1 ? '#be123c' : '#6b7280' }}>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', fontWeight: 600, color: '#be123c', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{r.typeLabel}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r.suply.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r.local.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r.etc.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', fontWeight: 700, color: r.total > 0 ? '#dc2626' : '#9ca3af', verticalAlign: 'middle' }}>{r.total.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', fontWeight: 600, color: r.rate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                       {r.suply > 0
                         ? (r.rate < 1 ? `미달 (${r.rate.toFixed(2)})` : `${r.rate.toFixed(2)} 대 1`)
                         : '-'}
@@ -1308,12 +1330,12 @@ function ThisWeekCard({
                 ))}
                 {/* 합계 행 */}
                 <tr style={{ backgroundColor: '#fef3c7', borderTop: '2px solid #fbbf24' }}>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>계</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{rank1TotalSuply.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{rank1TotalLocal.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{rank1TotalEtc.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', backgroundColor: '#fee2e2' }}>{rank1GrandTotal.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 800, color: rank1AvgRate >= 1 ? '#be123c' : '#6b7280' }}>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>계</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalSuply.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalLocal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalEtc.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>{rank1GrandTotal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: rank1AvgRate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                     {rank1TotalSuply > 0
                       ? (rank1AvgRate < 1 ? `미달 (${rank1AvgRate.toFixed(2)})` : `${rank1AvgRate.toFixed(2)} 대 1`)
                       : '-'}
