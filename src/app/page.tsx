@@ -782,14 +782,14 @@ function ThisWeekCard({
         <div>
           <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황 (청약홈 동일)</p>
           <div className="overflow-x-auto">
-            <table className="w-full text-[11px] border-collapse">
+            <table className="w-full text-[10px] sm:text-[11px] border-collapse">
               <thead>
                 <tr className="bg-blue-50 text-gray-700">
                   <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>주택형</th>
                   <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>공급<br/>세대</th>
                   <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>구분</th>
                   <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" colSpan={8}>특별공급 구분</th>
-                  <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>총<br/>접수</th>
+                  <th className="border border-blue-100 px-1.5 py-1.5 font-semibold sticky right-0 bg-blue-50 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]" rowSpan={2}>총<br/>접수</th>
                 </tr>
                 <tr className="bg-blue-50 text-gray-600">
                   <th className="border border-blue-100 px-1 py-1 font-medium">다자녀</th>
@@ -838,7 +838,7 @@ function ThisWeekCard({
                         {assignedRow.map((val, i) => (
                           <td key={i} className="border border-gray-200 px-0.5 py-1 text-center text-gray-600">{val ? val.toLocaleString() : '-'}</td>
                         ))}
-                        <td className="border border-gray-200 px-1.5 py-1.5 text-center font-bold text-orange-600" rowSpan={2}>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center font-bold text-orange-600 sticky right-0 bg-white shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]" rowSpan={2}>
                           {totalReceived.toLocaleString()}
                         </td>
                       </tr>,
@@ -890,7 +890,7 @@ function ThisWeekCard({
                           {val ? val.toLocaleString() : '-'}
                         </td>
                       ))}
-                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 text-[12px] bg-red-50">
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 text-[12px] bg-red-50 sticky right-0 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.12)]">
                         {grandTotal.toLocaleString()}
                       </td>
                     </tr>
@@ -911,7 +911,7 @@ function ThisWeekCard({
         <div className="mt-4">
           <p className="text-xs font-semibold text-rose-600 mb-2">📊 일반공급 1순위 청약접수 현황</p>
           <div className="overflow-x-auto">
-            <table className="w-full text-[11px] border-collapse">
+            <table className="w-full text-[10px] sm:text-[11px] border-collapse">
               <thead>
                 <tr className="bg-rose-50 text-gray-700">
                   <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">타입</th>
@@ -1323,19 +1323,19 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-4 flex gap-0 border-t border-gray-100">
           <button
             onClick={() => setActiveTab('notice')}
-            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'notice' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
+            className={`flex-1 sm:flex-none px-2 sm:px-6 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'notice' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
           >
             📋 청약공고
           </button>
           <button
             onClick={() => setActiveTab('competition')}
-            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'competition' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
+            className={`flex-1 sm:flex-none px-2 sm:px-6 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'competition' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
           >
             📊 경쟁률 조회
           </button>
           <button
             onClick={() => setActiveTab('thisweek')}
-            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'thisweek' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
+            className={`flex-1 sm:flex-none px-2 sm:px-6 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'thisweek' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
           >
             📅 접수현황 조회
           </button>
