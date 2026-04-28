@@ -603,7 +603,11 @@ function ThisWeekCard({
   const spsplyResultName = specialSupply?.subscrptResultNm || ''
 
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover flex flex-col gap-3">
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover">
+      {/* 상단 영역 - 단지 정보 + 상태 박스 (가로 분할) */}
+      <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 mb-4">
+        {/* 왼쪽: 단지 기본정보 */}
+        <div className="lg:w-80 flex flex-col gap-3">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -626,88 +630,8 @@ function ThisWeekCard({
         </p>
       </div>
 
-      {/* 상태 박스 */}
-      <div className="border-t border-gray-100 pt-3">
-        {!hasSpsplyData && (
-          <div className="bg-blue-50 rounded-xl p-3 text-center">
-            <p className="text-sm font-semibold text-blue-700">⏳ 데이터 대기 중</p>
-            <p className="text-xs text-blue-600 mt-1">접수 후 결과 동기화</p>
-            {notice.przwnerPresnatnDe && (
-              <p className="text-xs text-gray-500 mt-2">
-                예정 발표일: {formatDate(notice.przwnerPresnatnDe)} (저녁 7:30)
-              </p>
-            )}
-          </div>
-        )}
-        {hasSpsplyData && (
-          <div className="bg-emerald-50 rounded-xl p-3 text-center">
-            <p className="text-sm font-semibold text-emerald-700">✅ 특별공급 접수 결과</p>
-            <p className="text-xs text-emerald-600 mt-1">{spsplyResultName || '데이터 수신됨'}</p>
-          </div>
-        )}
-      </div>
-
-      {/* 특별공급 신청현황 표 */}
-      {hasSpsplyData && specialSupply && (
-        <div className="border-t border-blue-50 pt-3">
-          <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황</p>
-          <div className="space-y-3">
-            {specialSupply.houseTypes.map((ht) => (
-              <div key={ht.type} className="bg-blue-50 rounded-lg p-2">
-                <p className="text-xs font-bold text-blue-700 mb-1.5">
-                  {ht.typeLabel}㎡ <span className="text-gray-500 font-normal">(공급 {ht.spsplyHshldco}세대)</span>
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-[10px]">
-                    <thead>
-                      <tr className="text-gray-500">
-                        <th className="text-left font-medium py-0.5">구분</th>
-                        <th className="text-center font-medium">배정</th>
-                        <th className="text-center font-medium">해당</th>
-                        <th className="text-center font-medium">경기</th>
-                        <th className="text-center font-medium">기타</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ht.categories.map((cat) => {
-                        if (cat.areaData) {
-                          return (
-                            <tr key={cat.name} className="border-t border-blue-100">
-                              <td className="text-gray-700 font-medium py-0.5">{cat.name}</td>
-                              <td className="text-center text-gray-600">{cat.suply}</td>
-                              <td className="text-center text-blue-700 font-semibold">{cat.areaData.해당}</td>
-                              <td className="text-center text-blue-600">{cat.areaData.기타경기}</td>
-                              <td className="text-center text-blue-600">{cat.areaData.기타지역}</td>
-                            </tr>
-                          )
-                        }
-                        if (cat.instData) {
-                          return (
-                            <tr key={cat.name} className="border-t border-blue-100">
-                              <td className="text-gray-700 font-medium py-0.5">{cat.name}</td>
-                              <td className="text-center text-gray-600">{cat.suply}</td>
-                              <td colSpan={3} className="text-center text-blue-700 font-semibold">
-                                {cat.name === '기관추천' ? `${cat.instData.결정}(${cat.instData.미결})` : `${cat.instData.결정}`}
-                              </td>
-                            </tr>
-                          )
-                        }
-                        return null
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="text-[10px] text-gray-400 mt-1.5">
-            ※ 해당=해당지역, 경기=기타경기, 기타=기타지역 / 기관추천: 결정(미결)
-          </p>
-        </div>
-      )}
-
-      {/* 하단 버튼 */}
-      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
+      {/* 하단 버튼 (왼쪽 컬럼에 배치) */}
+      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 mt-auto">
         <a
           href={`https://map.naver.com/p/search/${encodeURIComponent(notice.name)}`}
           target="_blank"
@@ -727,6 +651,118 @@ function ThisWeekCard({
           <span className="text-xs font-semibold text-gray-700">청약홈 상세</span>
         </a>
       </div>
+        </div>{/* 왼쪽 컬럼 끝 */}
+
+        {/* 오른쪽: 상태 박스 + 특별공급 표 */}
+        <div className="flex-1 flex flex-col gap-3">
+
+      {/* 상태 박스 */}
+      <div>
+        {!hasSpsplyData && (
+          <div className="bg-blue-50 rounded-xl p-3 text-center">
+            <p className="text-sm font-semibold text-blue-700">⏳ 데이터 대기 중</p>
+            <p className="text-xs text-blue-600 mt-1">접수 후 결과 동기화</p>
+            {notice.przwnerPresnatnDe && (
+              <p className="text-xs text-gray-500 mt-2">
+                예정 발표일: {formatDate(notice.przwnerPresnatnDe)} (저녁 7:30)
+              </p>
+            )}
+          </div>
+        )}
+        {hasSpsplyData && (
+          <div className="bg-emerald-50 rounded-xl p-3 text-center">
+            <p className="text-sm font-semibold text-emerald-700">✅ 특별공급 접수 결과</p>
+            <p className="text-xs text-emerald-600 mt-1">{spsplyResultName || '데이터 수신됨'}</p>
+          </div>
+        )}
+      </div>
+
+      {/* 특별공급 신청현황 - 가로 풀폭 표 */}
+      {hasSpsplyData && specialSupply && (
+        <div>
+          <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황 (청약홈 동일)</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-blue-50 text-gray-700">
+                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>주택형</th>
+                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>공급<br/>세대</th>
+                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>구분</th>
+                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" colSpan={8}>특별공급 구분</th>
+                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>총<br/>접수</th>
+                </tr>
+                <tr className="bg-blue-50 text-gray-600">
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">다자녀</th>
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">신혼<br/>부부</th>
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">생애<br/>최초</th>
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">노부모</th>
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">신생아</th>
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">청년</th>
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">기관<br/>추천</th>
+                  <th className="border border-blue-100 px-1.5 py-1 font-medium">이전<br/>기관</th>
+                </tr>
+              </thead>
+              <tbody>
+                {specialSupply.houseTypes.flatMap((ht) => {
+                  // 카테고리별 데이터를 8개 컬럼으로 매핑
+                  const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
+                  const findCat = (name: string) => ht.categories.find(c => c.name === name)
+                  // 배정세대수 행
+                  const assignedRow = order.map(name => {
+                    const cat = findCat(name)
+                    return cat ? cat.suply : 0
+                  })
+                  // 접수건수 행
+                  const receivedRow = order.map(name => {
+                    const cat = findCat(name)
+                    if (!cat) return 0
+                    if (cat.areaData) {
+                      return cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+                    }
+                    if (cat.instData) {
+                      return cat.instData.결정
+                    }
+                    return 0
+                  })
+                  const totalReceived = receivedRow.reduce((s, n) => s + n, 0)
+
+                  return [
+                    <tr key={`${ht.type}-1`} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 px-2 py-1.5 text-center font-semibold text-blue-700" rowSpan={2}>
+                          {ht.typeLabel}㎡
+                        </td>
+                        <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-600" rowSpan={2}>
+                          {ht.spsplyHshldco}
+                        </td>
+                        <td className="border border-gray-200 px-2 py-1 text-center text-gray-500 text-[10px]">배정</td>
+                        {assignedRow.map((val, i) => (
+                          <td key={i} className="border border-gray-200 px-1 py-1 text-center text-gray-600">{val || '-'}</td>
+                        ))}
+                        <td className="border border-gray-200 px-2 py-1.5 text-center font-bold text-orange-600" rowSpan={2}>
+                          {totalReceived}
+                        </td>
+                      </tr>,
+                    <tr key={`${ht.type}-2`} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 px-2 py-1 text-center text-gray-700 text-[10px] font-semibold bg-blue-50">접수</td>
+                        {receivedRow.map((val, i) => (
+                          <td key={i} className={`border border-gray-200 px-1 py-1 text-center font-semibold ${val > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
+                            {val || '-'}
+                          </td>
+                        ))}
+                      </tr>
+                  ]
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5">
+            ※ 접수 = 해당지역+기타경기+기타지역 합계 / 기관추천·이전기관: 결정수 기준
+          </p>
+        </div>
+      )}
+
+        </div>{/* 오른쪽 컬럼 끝 */}
+      </div>{/* 가로 분할 영역 끝 */}
     </div>
   )
 }
@@ -1114,7 +1150,7 @@ export default function Home() {
                   <p className="text-sm text-blue-100 mb-4">
                     총 <span className="font-bold text-white">{thisWeekItems.length}건</span>의 단지
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="flex flex-col gap-4">
                     {loading || spsplyLoading ? (
                       Array(3).fill(0).map((_, i) => <SkeletonCard key={i} />)
                     ) : thisWeekItems.length > 0 ? (
