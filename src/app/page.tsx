@@ -616,6 +616,20 @@ function isInPeriod(rceptBgnde: string, rceptEndde: string, periodKey: string): 
   return startDate <= end && endDate >= start
 }
 
+// 기간 키 → fetchCompetition용 YYYY-MM 범위로 변환
+// 1순위 경쟁률 API는 yearMonthFrom/yearMonthTo 파라미터를 받음
+function getPeriodYmRange(periodKey: string): { from: string; to: string } {
+  const { start, end } = getPeriodRange(periodKey)
+  const fromY = start.getFullYear()
+  const fromM = start.getMonth() + 1
+  const toY = end.getFullYear()
+  const toM = end.getMonth() + 1
+  return {
+    from: `${fromY}-${pad2(fromM)}`,
+    to: `${toY}-${pad2(toM)}`,
+  }
+}
+
 // ===================== 금주 접수현황 카드 =====================
 function ThisWeekCard({
   notice,
@@ -1140,9 +1154,15 @@ export default function Home() {
     const isThisWeekSelected = thisWeekPeriod === 'thisweek'
     fetchNotice()
     fetchSpecialSupply(isThisWeekSelected)
-    // 1순위 데이터는 최근 1년 범위로 호출
-    const range = getRecent1YearRange(new Date())
-    fetchCompetition('', '전체', range.from, range.to)
+    // 1순위 데이터: 사용자가 선택한 기간에 맞춰 호출
+    // '이번 주' 선택 시에는 최근 1년 범위 (LIVE 모드 호환)
+    if (isThisWeekSelected) {
+      const range = getRecent1YearRange(new Date())
+      fetchCompetition('', '전체', range.from, range.to)
+    } else {
+      const ym = getPeriodYmRange(thisWeekPeriod)
+      fetchCompetition('', '전체', ym.from, ym.to)
+    }
   }, [activeTab, thisWeekPeriod, fetchNotice, fetchSpecialSupply, fetchCompetition])
 
   // 발표 시간대(평일 19:30~21:00)엔 30초마다 자동 새로고침 — '이번 주' 선택 시에만
