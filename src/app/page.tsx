@@ -353,7 +353,7 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 }
 
 // ===================== 경쟁률 카드 =====================
-function CompetitionCard({ item }: { item: CompetitionItem }) {
+function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; specialSupply: SpecialSupplyItem | null }) {
   const [expanded, setExpanded] = useState(false)
 
   // 1순위 전체 평균 경쟁률 = 총 1순위 신청건수 / 총 1순위 공급세대수
@@ -452,59 +452,52 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
   const rank2HasAnyData = rank2ByType.some((r) => r.suply > 0 && r.total > 0)
   const showRank2 = rank2HasAnyData
 
-  // 특별공급 데이터 가공 (자세히 보기용)
-  const spsplyRowDetail = item.houseTypes.find((h) => h.spsply)?.spsply
+  // 특별공급 자세히 보기 데이터: special-supply API 사용 (해당+기타경기+기타지역 합산)
   const spsplyDetailRows = (() => {
-    if (!spsplyRowDetail) return [] as Array<{ name: string; suply: number; cnt: number }>
-    const types = [
-      { name: '다자녀', suply: 'MNYCH_HSHLDCO', cnt: 'CRSPAREA_MNYCH_CNT' },
-      { name: '신혼부부', suply: 'NWWDS_NMTW_HSHLDCO', cnt: 'CRSPAREA_NWWDS_NMTW_CNT' },
-      { name: '생애최초', suply: 'LFE_FRST_HSHLDCO', cnt: 'CRSPAREA_LFE_FRST_CNT' },
-      { name: '신생아', suply: 'NWBB_NWBBSHR_HSHLDCO', cnt: 'CRSPAREA_NWBB_NWBBSHR_CNT' },
-      { name: '청년', suply: 'YGMN_HSHLDCO', cnt: 'CRSPAREA_YGMN_CNT' },
-      { name: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', cnt: 'CRSPAREA_OPS_CNT' },
-    ]
-    return types
-      .map((t) => ({
-        name: t.name,
-        suply: parseInt(spsplyRowDetail[t.suply] || '0', 10),
-        cnt: parseInt(spsplyRowDetail[t.cnt] || '0', 10),
-      }))
+    if (!specialSupply || specialSupply.houseTypes.length === 0) {
+      return [] as Array<{ name: string; suply: number; cnt: number }>
+    }
+    const generalNames = ['다자녀', '신혼부부', '생애최초', '신생아', '청년', '노부모']
+    const aggMap = new Map<string, { suply: number; cnt: number }>()
+
+    specialSupply.houseTypes.forEach((ht) => {
+      ht.categories.forEach((cat) => {
+        if (!generalNames.includes(cat.name)) return
+        const cur = aggMap.get(cat.name) || { suply: 0, cnt: 0 }
+        cur.suply += cat.suply
+        if (cat.areaData) {
+          cur.cnt += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+        }
+        aggMap.set(cat.name, cur)
+      })
+    })
+
+    return generalNames
+      .map((name) => {
+        const v = aggMap.get(name) || { suply: 0, cnt: 0 }
+        return { name, suply: v.suply, cnt: v.cnt }
+      })
       .filter((r) => r.suply > 0)
   })()
   const spsplyDetailTotalSuply = spsplyDetailRows.reduce((s, r) => s + r.suply, 0)
   const spsplyDetailTotalCnt = spsplyDetailRows.reduce((s, r) => s + r.cnt, 0)
 
-  const spsplyRow = item.houseTypes.find((h) => h.spsply)?.spsply
+  // ===== 특공 합계 (special-supply API 사용 - 해당+기타경기+기타지역 모두 합산, [금주 접수현황]과 동일) =====
   let specialTotalReq = 0
   let specialTotalSupply = 0
 
-  if (spsplyRow) {
-    const specialReqFields = [
-      'CRSPAREA_MNYCH_CNT',
-      'CRSPAREA_NWWDS_NMTW_CNT',
-      'CRSPAREA_LFE_FRST_CNT',
-      'CRSPAREA_NWBB_NWBBSHR_CNT',
-      'CRSPAREA_YGMN_CNT',
-      'CRSPAREA_OPS_CNT',
-    ]
-
-    const specialSupplyFields = [
-      'MNYCH_HSHLDCO',
-      'NWWDS_NMTW_HSHLDCO',
-      'LFE_FRST_HSHLDCO',
-      'NWBB_NWBBSHR_HSHLDCO',
-      'YGMN_HSHLDCO',
-      'OLD_PARNTS_SUPORT_HSHLDCO',
-    ]
-
-    specialTotalReq = specialReqFields.reduce((sum, field) => {
-      return sum + parseInt(spsplyRow[field] || '0', 10)
-    }, 0)
-
-    specialTotalSupply = specialSupplyFields.reduce((sum, field) => {
-      return sum + parseInt(spsplyRow[field] || '0', 10)
-    }, 0)
+  if (specialSupply && specialSupply.houseTypes.length > 0) {
+    // 일반 6분류만 합산 (기관추천/이전기관 제외)
+    const generalNames = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년']
+    specialSupply.houseTypes.forEach((ht) => {
+      ht.categories.forEach((cat) => {
+        if (!generalNames.includes(cat.name)) return
+        specialTotalSupply += cat.suply
+        if (cat.areaData) {
+          specialTotalReq += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+        }
+      })
+    })
   }
 
   return (
@@ -580,38 +573,6 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
           )}
         </div>
       )}
-
-      {(() => {
-        const special = item.houseTypes.find((h) => h.spsply)?.spsply
-        if (!special) return null
-
-        const spsplyTypes = [
-          { label: '다자녀', suply: 'MNYCH_HSHLDCO', cnt: 'CRSPAREA_MNYCH_CNT' },
-          { label: '신혼부부', suply: 'NWWDS_NMTW_HSHLDCO', cnt: 'CRSPAREA_NWWDS_NMTW_CNT' },
-          { label: '생애최초', suply: 'LFE_FRST_HSHLDCO', cnt: 'CRSPAREA_LFE_FRST_CNT' },
-          { label: '신생아', suply: 'NWBB_NWBBSHR_HSHLDCO', cnt: 'CRSPAREA_NWBB_NWBBSHR_CNT' },
-          { label: '청년', suply: 'YGMN_HSHLDCO', cnt: 'CRSPAREA_YGMN_CNT' },
-          { label: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', cnt: 'CRSPAREA_OPS_CNT' },
-        ].filter((s) => parseInt(special[s.suply] || '0', 10) > 0)
-
-        if (spsplyTypes.length === 0) return null
-
-        return (
-          <div className="border-t border-blue-50 pt-3">
-            <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 신청현황</p>
-            <div className="grid grid-cols-2 gap-1">
-              {spsplyTypes.map((s, i) => (
-                <div key={i} className="bg-blue-50 rounded-lg px-2 py-1.5 flex justify-between items-center">
-                  <span className="text-xs text-gray-600">{s.label}</span>
-                  <span className="text-xs font-semibold text-blue-700">
-                    {parseInt(special[s.suply] || '0', 10).toLocaleString()} / {parseInt(special[s.cnt] || '0', 10).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })()}
 
       {/* 자세히 보기 토글 */}
       <button
@@ -1339,7 +1300,11 @@ export default function Home() {
     if (activeTab === 'competition' && !cmpetLoaded && yearMonthFrom && yearMonthTo) {
       fetchCompetition('', '전체', yearMonthFrom, yearMonthTo)
     }
-  }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo])
+    // 경쟁률 카드의 특공 데이터 통일을 위해 special-supply도 함께 로드
+    if (activeTab === 'competition' && spsplyItems.length === 0) {
+      fetchSpecialSupply(false)
+    }
+  }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo, fetchSpecialSupply, spsplyItems.length])
 
   // 금주 접수현황 탭 - 진입 시 청약공고 + 특별공급 + 1순위 경쟁률 fresh 호출
   useEffect(() => {
@@ -1569,7 +1534,10 @@ export default function Home() {
               {cmpetLoading
                 ? Array(6).fill(0).map((_, i) => <SkeletonCard key={i} />)
                 : filteredCmpet.length > 0
-                  ? filteredCmpet.map(item => <CompetitionCard key={item.pblancNo} item={item} />)
+                  ? filteredCmpet.map(item => {
+                      const matchedSpsply = spsplyItems.find(s => String(s.pblancNo || '').trim() === String(item.pblancNo || '').trim()) || null
+                      return <CompetitionCard key={item.pblancNo} item={item} specialSupply={matchedSpsply} />
+                    })
                   : (
                     <div className="col-span-3 text-center py-16 text-gray-400">
                       <div className="text-4xl mb-3">📊</div>
