@@ -1119,7 +1119,8 @@ export default function Home() {
                       Array(3).fill(0).map((_, i) => <SkeletonCard key={i} />)
                     ) : thisWeekItems.length > 0 ? (
                       thisWeekItems.map(notice => {
-                        const matched = spsplyItems.find(s => s.pblancNo === notice.id) || null
+                        const noticeKey = String(notice.id || '').trim()
+                        const matched = spsplyItems.find(s => String(s.pblancNo || '').trim() === noticeKey) || null
                         return <ThisWeekCard key={notice.id} notice={notice} specialSupply={matched} />
                       })
                     ) : (
