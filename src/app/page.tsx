@@ -81,7 +81,7 @@ type CompetitionItem = {
 
 // ===================== CONSTANTS =====================
 const REGIONS = ['전체', '서울', '경기', '인천', '부산', '대구', '광주', '대전', '울산', '세종', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
-const STATUSES = ['전체', '접수예정', '접수중', '접수마감']
+const STATUSES = ['전체', '접수예정', '접수중']
 
 const STATUS_STYLE: Record<string, string> = {
   '접수예정': 'bg-blue-100 text-blue-700',
@@ -1045,6 +1045,10 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'notice' | 'competition' | 'thisweek'>('notice')
 
   const [items, setItems] = useState<ApartmentItem[]>([])
+  // 청약공고 탭 전용 가벼운 state (최근 1페이지 = 1000건만)
+  const [noticeItems, setNoticeItems] = useState<ApartmentItem[]>([])
+  const [noticeLoading, setNoticeLoading] = useState(false)
+  const [noticeLoaded, setNoticeLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isDummy, setIsDummy] = useState(false)
   const [selectedRegion, setSelectedRegion] = useState('전체')
@@ -1071,6 +1075,7 @@ export default function Home() {
 
   const yearButtons = getFixedYearButtons()
 
+  // [접수현황 조회] 탭용: 풀로딩 (과거 데이터까지)
   const fetchNotice = useCallback(async (fresh = false) => {
     setLoading(true)
     try {
@@ -1083,6 +1088,25 @@ export default function Home() {
       console.error(e)
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  // [청약공고] 탭용: 가벼움 (limit=recent → 1페이지 = 1000건만)
+  const fetchNoticeRecent = useCallback(async (fresh = false) => {
+    setNoticeLoading(true)
+    try {
+      const url = fresh
+        ? '/api/apartments?limit=recent&fresh=1'
+        : '/api/apartments?limit=recent'
+      const res = await fetch(url, fresh ? { cache: 'no-store' } : undefined)
+      const data = await res.json()
+      setNoticeItems(data.items || [])
+      setIsDummy(data.isDummy || false)
+      setNoticeLoaded(true)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setNoticeLoading(false)
     }
   }, [])
 
@@ -1122,8 +1146,9 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    fetchNotice()
-  }, [fetchNotice])
+    // 앱 진입 시 가벼운 청약공고 데이터만 로드 (최근 1000건)
+    fetchNoticeRecent()
+  }, [fetchNoticeRecent])
 
   useEffect(() => {
     const range = getRecent1YearRange(new Date())
@@ -1152,7 +1177,18 @@ export default function Home() {
   useEffect(() => {
     if (activeTab !== 'thisweek') return
     const isThisWeekSelected = thisWeekPeriod === 'thisweek'
-    fetchNotice()
+
+    // 기간에 따른 청약공고 데이터 로드 분기
+    // - 이번 주/3개월: 가벼운 데이터(최근 1000건)로 충분
+    // - 12개월 이상/연도별: 풀로딩 필요
+    const needsFullData = thisWeekPeriod === '12m'
+      || /^\d{4}$/.test(thisWeekPeriod) // '2021'~'2025' 등 연도 키
+    if (needsFullData) {
+      fetchNotice()
+    } else {
+      fetchNoticeRecent(isThisWeekSelected) // 이번 주만 fresh
+    }
+
     fetchSpecialSupply(isThisWeekSelected)
     // 1순위 데이터: 사용자가 선택한 기간에 맞춰 호출
     // '이번 주' 선택 시에는 최근 1년 범위 (LIVE 모드 호환)
@@ -1163,7 +1199,7 @@ export default function Home() {
       const ym = getPeriodYmRange(thisWeekPeriod)
       fetchCompetition('', '전체', ym.from, ym.to)
     }
-  }, [activeTab, thisWeekPeriod, fetchNotice, fetchSpecialSupply, fetchCompetition])
+  }, [activeTab, thisWeekPeriod, fetchNotice, fetchNoticeRecent, fetchSpecialSupply, fetchCompetition])
 
   // 발표 시간대(평일 19:30~21:00)엔 30초마다 자동 새로고침 — '이번 주' 선택 시에만
   useEffect(() => {
@@ -1172,20 +1208,23 @@ export default function Home() {
     if (!isLiveTime()) return
 
     const interval = setInterval(() => {
-      fetchNotice()
+      fetchNoticeRecent(true)
       fetchSpecialSupply(true)
       const range = getRecent1YearRange(new Date())
       fetchCompetition('', '전체', range.from, range.to)
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [activeTab, thisWeekPeriod, fetchNotice, fetchSpecialSupply, fetchCompetition])
+  }, [activeTab, thisWeekPeriod, fetchNoticeRecent, fetchSpecialSupply, fetchCompetition])
 
-  const filteredNotice = items.filter(item => {
-    const regionMatch = selectedRegion === '전체' || item.region === selectedRegion
-    const statusMatch = selectedStatus === '전체' || item.status === selectedStatus
-    return regionMatch && statusMatch
-  })
+  // [청약공고] 탭: 가벼운 noticeItems 사용 + 접수마감 자동 제외 (진행/예정만)
+  const filteredNotice = noticeItems
+    .filter(item => item.status !== '접수마감')
+    .filter(item => {
+      const regionMatch = selectedRegion === '전체' || item.region === selectedRegion
+      const statusMatch = selectedStatus === '전체' || item.status === selectedStatus
+      return regionMatch && statusMatch
+    })
 
   const filteredCmpet = cmpetItems.filter(item => {
     const regionMatch = cmpetRegion === '전체' || item.region === cmpetRegion
@@ -1203,7 +1242,30 @@ export default function Home() {
           </div>
 
           <button
-            onClick={() => activeTab === 'notice' ? fetchNotice() : fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo)}
+            onClick={() => {
+              if (activeTab === 'notice') {
+                fetchNoticeRecent(true)
+              } else if (activeTab === 'competition') {
+                fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo)
+              } else {
+                // 접수현황 조회 탭
+                const isThisWeekSelected = thisWeekPeriod === 'thisweek'
+                const needsFullData = thisWeekPeriod === '12m' || /^\d{4}$/.test(thisWeekPeriod)
+                if (needsFullData) {
+                  fetchNotice(true)
+                } else {
+                  fetchNoticeRecent(true)
+                }
+                fetchSpecialSupply(isThisWeekSelected)
+                if (isThisWeekSelected) {
+                  const range = getRecent1YearRange(new Date())
+                  fetchCompetition('', '전체', range.from, range.to)
+                } else {
+                  const ym = getPeriodYmRange(thisWeekPeriod)
+                  fetchCompetition('', '전체', ym.from, ym.to)
+                }
+              }
+            }}
             className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-blue-300 hover:text-white font-medium flex items-center gap-1"
           >
             🔄 새로고침
@@ -1272,7 +1334,7 @@ export default function Home() {
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {loading
+              {noticeLoading && noticeItems.length === 0
                 ? Array(6).fill(0).map((_, i) => <SkeletonCard key={i} />)
                 : filteredNotice.length > 0
                   ? filteredNotice.map(item => <ApartmentCard key={item.id} item={item} />)
