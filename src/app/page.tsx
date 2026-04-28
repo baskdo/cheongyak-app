@@ -818,21 +818,21 @@ function ThisWeekCard({
                           {ht.typeLabel}㎡
                         </td>
                         <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-600" rowSpan={2}>
-                          {ht.spsplyHshldco}
+                          {ht.spsplyHshldco.toLocaleString()}
                         </td>
                         <td className="border border-gray-200 px-1 py-1 text-center text-gray-500 text-[9px]">배정</td>
                         {assignedRow.map((val, i) => (
-                          <td key={i} className="border border-gray-200 px-0.5 py-1 text-center text-gray-600">{val || '-'}</td>
+                          <td key={i} className="border border-gray-200 px-0.5 py-1 text-center text-gray-600">{val ? val.toLocaleString() : '-'}</td>
                         ))}
                         <td className="border border-gray-200 px-1.5 py-1.5 text-center font-bold text-orange-600" rowSpan={2}>
-                          {totalReceived}
+                          {totalReceived.toLocaleString()}
                         </td>
                       </tr>,
                     <tr key={`${ht.type}-2`} className="hover:bg-gray-50">
                       <td className="border border-gray-200 px-1 py-1 text-center text-gray-700 text-[9px] font-semibold bg-blue-50">접수</td>
                         {receivedRow.map((val, i) => (
                           <td key={i} className={`border border-gray-200 px-0.5 py-1 text-center font-semibold ${val > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
-                            {val || '-'}
+                            {val ? val.toLocaleString() : '-'}
                           </td>
                         ))}
                       </tr>
@@ -863,7 +863,7 @@ function ThisWeekCard({
                         합계
                       </td>
                       <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
-                        {totalSupply}
+                        {totalSupply.toLocaleString()}
                       </td>
                       <td className="border border-amber-200 px-1 py-1.5 text-center font-bold text-amber-800 text-[9px]">
                         접수
@@ -873,11 +873,11 @@ function ThisWeekCard({
                           key={i}
                           className={`border border-amber-200 px-0.5 py-1.5 text-center font-bold ${val > 0 ? 'text-red-600' : 'text-gray-400'}`}
                         >
-                          {val || '-'}
+                          {val ? val.toLocaleString() : '-'}
                         </td>
                       ))}
                       <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 text-[12px] bg-red-50">
-                        {grandTotal}
+                        {grandTotal.toLocaleString()}
                       </td>
                     </tr>
                   )
