@@ -537,6 +537,207 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
 }
 
 // ===================== 스켈레톤 =====================
+// ===================== 금주 접수현황 헬퍼 =====================
+// 이번 주 (월~일) 범위 계산
+function getThisWeekRange(): { start: Date; end: Date } {
+  const now = new Date()
+  const day = now.getDay() // 0=일, 1=월, ..., 6=토
+  const diffToMonday = day === 0 ? -6 : 1 - day
+  const monday = new Date(now)
+  monday.setDate(now.getDate() + diffToMonday)
+  monday.setHours(0, 0, 0, 0)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  sunday.setHours(23, 59, 59, 999)
+  return { start: monday, end: sunday }
+}
+
+// 이번 주 접수 단지 필터
+function isThisWeekRecept(rceptBgnde: string, rceptEndde: string): boolean {
+  if (!rceptBgnde || !rceptEndde) return false
+  const { start, end } = getThisWeekRange()
+  const startDate = new Date(rceptBgnde)
+  const endDate = new Date(rceptEndde)
+  // 접수 기간이 이번 주와 겹치면 true
+  return startDate <= end && endDate >= start
+}
+
+// 발표시간 체크 (평일 19:30 이후)
+function isAfterAnnouncement(): boolean {
+  const now = new Date()
+  const day = now.getDay()
+  if (day === 0 || day === 6) return true // 주말은 항상 true
+  const totalMin = now.getHours() * 60 + now.getMinutes()
+  return totalMin >= 19 * 60 + 30
+}
+
+// 발표 시간대인지 (평일 19:30 ~ 21:00)
+function isLiveTime(): boolean {
+  const now = new Date()
+  const day = now.getDay()
+  if (day === 0 || day === 6) return false
+  const totalMin = now.getHours() * 60 + now.getMinutes()
+  return totalMin >= 19 * 60 + 30 && totalMin <= 21 * 60
+}
+
+// ===================== 금주 접수현황 카드 =====================
+function ThisWeekCard({
+  notice,
+  competition,
+}: {
+  notice: ApartmentItem
+  competition: CompetitionItem | null
+}) {
+  // 접수 종료 시간이 지났는지
+  const now = new Date()
+  const endDate = new Date(notice.rceptEndde)
+  endDate.setHours(23, 59, 59, 999)
+  const receptionDone = now > endDate
+
+  // 발표일이 지났는지
+  const annDate = notice.przwnerPresnatnDe ? new Date(notice.przwnerPresnatnDe) : null
+  const announcementPassed = annDate ? now >= annDate : false
+
+  const hasRateData = competition && competition.houseTypes.length > 0
+
+  // 1순위 평균경쟁률 계산
+  let avgRate = 0
+  let rank1TotalSuply = 0
+  if (competition) {
+    const rank1Items = competition.houseTypes.filter((h) => h.rank === '1')
+    const rank1TotalReqCnt = rank1Items.reduce(
+      (sum, h) => sum + parseInt(h.reqCnt || '0', 10),
+      0
+    )
+    const suplyByType: Record<string, number> = {}
+    rank1Items.forEach((h) => {
+      const key = h.type.trim()
+      if (!(key in suplyByType)) {
+        suplyByType[key] = parseInt(h.suply || '0', 10)
+      }
+    })
+    rank1TotalSuply = Object.values(suplyByType).reduce((sum, n) => sum + n, 0)
+    avgRate = rank1TotalSuply > 0
+      ? Math.round((rank1TotalReqCnt / rank1TotalSuply) * 100) / 100
+      : 0
+  }
+
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover flex flex-col gap-3">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">APT</span>
+          <span className={`status-badge ${STATUS_STYLE[notice.status]}`}>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${STATUS_DOT[notice.status]}`} />
+            {notice.status}
+          </span>
+        </div>
+        <span className="text-xs text-gray-400">
+          {formatDate(notice.rceptBgnde)} ~ {formatDate(notice.rceptEndde)}
+        </span>
+      </div>
+
+      {/* 단지명 */}
+      <div>
+        <h3 className="font-bold text-gray-900 text-base leading-snug">{notice.name}</h3>
+        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+          <span className="text-red-400">📍</span>{notice.region}
+        </p>
+      </div>
+
+      {/* 상태별 경쟁률 영역 */}
+      <div className="border-t border-gray-100 pt-3">
+        {!receptionDone && (
+          // 접수 진행 중 또는 접수 예정
+          <div className="bg-blue-50 rounded-xl p-3 text-center">
+            <p className="text-sm font-semibold text-blue-700">⏳ 접수 진행중</p>
+            <p className="text-xs text-blue-600 mt-1">접수 마감 후 결과 발표</p>
+            {notice.przwnerPresnatnDe && (
+              <p className="text-xs text-gray-500 mt-2">
+                예정 발표일: {formatDate(notice.przwnerPresnatnDe)} (저녁 7:30)
+              </p>
+            )}
+          </div>
+        )}
+
+        {receptionDone && !announcementPassed && (
+          // 접수 끝, 발표 대기 중
+          <div className="bg-amber-50 rounded-xl p-3 text-center">
+            <p className="text-sm font-semibold text-amber-700">📊 결과 발표 대기 중</p>
+            <p className="text-xs text-amber-600 mt-1">
+              {notice.przwnerPresnatnDe
+                ? `${formatDate(notice.przwnerPresnatnDe)} 저녁 7:30 발표 예정`
+                : '곧 발표 예정'}
+            </p>
+          </div>
+        )}
+
+        {announcementPassed && !hasRateData && (
+          // 발표 시간 지났는데 데이터 없음
+          <div className="bg-rose-50 rounded-xl p-3 text-center">
+            <p className="text-sm font-semibold text-rose-700">🔴 발표 진행중...</p>
+            <p className="text-xs text-rose-600 mt-1">청약홈 데이터 동기화 대기</p>
+            <a
+              href={`https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?houseManageNo=${notice.id}&pblancNo=${notice.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-xs font-semibold text-rose-700 underline"
+            >
+              청약홈에서 바로 확인 →
+            </a>
+          </div>
+        )}
+
+        {announcementPassed && hasRateData && rank1TotalSuply > 0 && (
+          // 발표 완료 - 경쟁률 표시
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">1순위 평균경쟁률</span>
+              <span
+                className={`text-sm font-bold px-2 py-0.5 rounded-full ${
+                  avgRate >= 10
+                    ? 'bg-red-100 text-red-600'
+                    : avgRate >= 1
+                      ? 'bg-orange-100 text-orange-600'
+                      : avgRate > 0
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-gray-100 text-gray-500'
+                }`}
+              >
+                {avgRate.toFixed(2)} : 1
+              </span>
+              {avgRate < 1 && <span className="text-xs text-gray-400">(미달)</span>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 하단 버튼 */}
+      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
+        <a
+          href={`https://map.naver.com/p/search/${encodeURIComponent(notice.name)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors shadow-sm"
+        >
+          <img src="/naver-map-logo.png" alt="네이버 지도" className="w-5 h-5 object-contain" />
+          <span className="text-xs font-semibold text-gray-700">네이버지도</span>
+        </a>
+        <a
+          href={`https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?houseManageNo=${notice.id}&pblancNo=${notice.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 rounded-xl py-2 hover:bg-gray-50 transition-colors shadow-sm"
+        >
+          <img src="/applyhome-logo.png" alt="청약홈" className="w-5 h-5 object-contain" />
+          <span className="text-xs font-semibold text-gray-700">청약홈 상세</span>
+        </a>
+      </div>
+    </div>
+  )
+}
+
 function SkeletonCard() {
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 animate-pulse">
@@ -563,7 +764,7 @@ function SkeletonCard() {
 
 // ===================== 메인 =====================
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'notice' | 'competition'>('notice')
+  const [activeTab, setActiveTab] = useState<'notice' | 'competition' | 'thisweek'>('notice')
 
   const [items, setItems] = useState<ApartmentItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -640,6 +841,22 @@ export default function Home() {
     }
   }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo])
 
+  // 금주 접수현황 탭 - 발표 시간대(평일 19:30~21:00)에 30초마다 자동 새로고침
+  useEffect(() => {
+    if (activeTab !== 'thisweek') return
+    if (!isLiveTime()) return
+
+    const interval = setInterval(() => {
+      // 청약공고와 경쟁률 둘 다 새로 가져오기
+      fetchNotice()
+      if (yearMonthFrom && yearMonthTo) {
+        fetchCompetition('', '전체', yearMonthFrom, yearMonthTo)
+      }
+    }, 30000) // 30초
+
+    return () => clearInterval(interval)
+  }, [activeTab, fetchNotice, fetchCompetition, yearMonthFrom, yearMonthTo])
+
   const filteredNotice = items.filter(item => {
     const regionMatch = selectedRegion === '전체' || item.region === selectedRegion
     const statusMatch = selectedStatus === '전체' || item.status === selectedStatus
@@ -681,6 +898,12 @@ export default function Home() {
             className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'competition' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
           >
             📊 경쟁률 조회
+          </button>
+          <button
+            onClick={() => setActiveTab('thisweek')}
+            className={`px-6 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'thisweek' ? 'border-blue-400 text-blue-300' : 'border-transparent text-gray-400 hover:text-white'}`}
+          >
+            📅 금주 접수현황
           </button>
         </div>
       </header>
@@ -845,6 +1068,57 @@ export default function Home() {
                     </div>
                   )}
             </div>
+          </>
+        )}
+
+        {/* ===== 금주 접수현황 탭 ===== */}
+        {activeTab === 'thisweek' && (
+          <>
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6">
+              <p className="text-sm font-semibold text-gray-700 mb-1">📅 이번 주 접수 단지</p>
+              <p className="text-xs text-gray-500">
+                {(() => {
+                  const { start, end } = getThisWeekRange()
+                  return `${formatDate(start.toISOString().slice(0, 10))} ~ ${formatDate(end.toISOString().slice(0, 10))}`
+                })()}
+              </p>
+              {isLiveTime() && (
+                <div className="mt-2 inline-flex items-center gap-1.5 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                  </span>
+                  <span className="text-xs font-bold text-rose-700">LIVE - 결과 발표 중</span>
+                </div>
+              )}
+            </div>
+
+            {(() => {
+              const thisWeekItems = items.filter(i => isThisWeekRecept(i.rceptBgnde, i.rceptEndde))
+              return (
+                <>
+                  <p className="text-sm text-blue-100 mb-4">
+                    총 <span className="font-bold text-white">{thisWeekItems.length}건</span>의 단지
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {loading ? (
+                      Array(3).fill(0).map((_, i) => <SkeletonCard key={i} />)
+                    ) : thisWeekItems.length > 0 ? (
+                      thisWeekItems.map(notice => {
+                        // 매칭되는 경쟁률 데이터 찾기
+                        const matched = cmpetItems.find(c => c.pblancNo === notice.id) || null
+                        return <ThisWeekCard key={notice.id} notice={notice} competition={matched} />
+                      })
+                    ) : (
+                      <div className="col-span-3 text-center py-16 text-gray-300">
+                        <div className="text-4xl mb-3">📅</div>
+                        <p>이번 주 접수 단지가 없습니다.</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )
+            })()}
           </>
         )}
       </div>
