@@ -1157,7 +1157,7 @@ export default function Home() {
     }
   }, [CACHE_TTL_MS])
 
-  const fetchCompetition = useCallback(async (kw = '', region = '전체', ymFrom = '', ymTo = '', background = false, skipIfFresh = false) => {
+  const fetchCompetition = useCallback(async (kw = '', region = '전체', ymFrom = '', ymTo = '', background = false, skipIfFresh = false, fresh = false) => {
     if (skipIfFresh && Date.now() - lastFetchAt.current.cmpet < CACHE_TTL_MS) {
       return
     }
@@ -1169,8 +1169,12 @@ export default function Home() {
       if (region !== '전체') params.set('region', region)
       if (ymFrom) params.set('yearMonthFrom', ymFrom)
       if (ymTo) params.set('yearMonthTo', ymTo)
+      if (fresh) params.set('fresh', '1') // 서버 캐시 무시
 
-      const res = await fetch(`/api/competition?${params.toString()}`)
+      const res = await fetch(
+        `/api/competition?${params.toString()}`,
+        fresh ? { cache: 'no-store' } : undefined
+      )
       const data = await res.json()
       setCmpetItems(data.items || [])
       setCmpetLoaded(true)
@@ -1227,13 +1231,24 @@ export default function Home() {
     const needsFullData = thisWeekPeriod === '12m'
       || /^\d{4}$/.test(thisWeekPeriod) // '2021'~'2025' 등 연도 키
 
-    // '이번 주' 선택 시 LIVE 모드 호환을 위해 fresh 호출, 그 외엔 캐시 재활용 + 백그라운드 갱신
+    // LIVE 시간대(평일 19:30~21:00) + 이번 주 선택 시에는 캐시 무시하고 강제 fresh
+    const isLiveAndThisWeek = isThisWeekSelected && isLiveTime()
+
     if (isThisWeekSelected) {
-      // 이번 주: 데이터 있어도 백그라운드 갱신 (LIVE 모드 호환), 단 5분 이내면 스킵
-      fetchNoticeRecent(false, noticeItems.length > 0, true)
-      fetchSpecialSupply(false, spsplyItems.length > 0, true)
-      const range = getRecent1YearRange(new Date())
-      fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0, true)
+      if (isLiveAndThisWeek) {
+        // LIVE 시간대: 캐시 무시, 강제 fresh, 백그라운드
+        fetchNoticeRecent(true, noticeItems.length > 0, false)
+        fetchSpecialSupply(true, spsplyItems.length > 0, false)
+        const range = getRecent1YearRange(new Date())
+        // fetchCompetition: background, skipIfFresh=false, fresh=true
+        fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0, false, true)
+      } else {
+        // 일반 시간대: 5분 이내 캐시면 스킵
+        fetchNoticeRecent(false, noticeItems.length > 0, true)
+        fetchSpecialSupply(false, spsplyItems.length > 0, true)
+        const range = getRecent1YearRange(new Date())
+        fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0, true)
+      }
     } else {
       // 과거 기간: 데이터 있으면 백그라운드 갱신, 없으면 일반 로딩
       if (needsFullData) {
@@ -1254,11 +1269,12 @@ export default function Home() {
     if (!isLiveTime()) return
 
     const interval = setInterval(() => {
-      // LIVE 갱신은 항상 fresh + 백그라운드
+      // LIVE 갱신은 항상 fresh + 백그라운드 (서버/클라이언트 캐시 모두 무시)
       fetchNoticeRecent(true, true)
       fetchSpecialSupply(true, true)
       const range = getRecent1YearRange(new Date())
-      fetchCompetition('', '전체', range.from, range.to, true)
+      // fetchCompetition: background=true, skipIfFresh=false, fresh=true
+      fetchCompetition('', '전체', range.from, range.to, true, false, true)
     }, 30000)
 
     return () => clearInterval(interval)
