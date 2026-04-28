@@ -713,6 +713,105 @@ function ThisWeekCard({
         )}
       </div>
 
+      {/* 특별공급 신청현황 - 청약홈 표 형식 */}
+      {(() => {
+        if (!competition) return null
+        // 모든 주택형의 spsply 데이터 모으기
+        const spsplyByType: { type: string; data: Record<string, string> }[] = []
+        competition.houseTypes.forEach((h) => {
+          if (h.spsply && !spsplyByType.find(x => x.type === h.type)) {
+            spsplyByType.push({ type: h.type, data: h.spsply })
+          }
+        })
+        if (spsplyByType.length === 0) return null
+
+        // 청약홈 표 분류
+        const categoriesArea = [
+          { label: '다자녀', suply: 'MNYCH_HSHLDCO', crsp: 'CRSPAREA_MNYCH_CNT', ctprvn: 'CTPRVN_MNYCH_CNT', etc: 'ETC_AREA_MNYCH_CNT' },
+          { label: '신혼부부', suply: 'NWWDS_NMTW_HSHLDCO', crsp: 'CRSPAREA_NWWDS_NMTW_CNT', ctprvn: 'CTPRVN_NWWDS_NMTW_CNT', etc: 'ETC_AREA_NWWDS_NMTW_CNT' },
+          { label: '생애최초', suply: 'LFE_FRST_HSHLDCO', crsp: 'CRSPAREA_LFE_FRST_CNT', ctprvn: 'CTPRVN_LFE_FRST_CNT', etc: 'ETC_AREA_LFE_FRST_CNT' },
+          { label: '청년', suply: 'YGMN_HSHLDCO', crsp: 'CRSPAREA_YGMN_CNT', ctprvn: 'CTPRVN_YGMN_CNT', etc: 'ETC_AREA_YGMN_CNT' },
+          { label: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', crsp: 'CRSPAREA_OPS_CNT', ctprvn: 'CTPRVN_OPS_CNT', etc: 'ETC_AREA_OPS_CNT' },
+          { label: '신생아', suply: 'NWBB_NWBBSHR_HSHLDCO', crsp: 'CRSPAREA_NWBB_NWBBSHR_CNT', ctprvn: 'CTPRVN_NWBB_NWBBSHR_CNT', etc: 'ETC_AREA_NWBB_NWBBSHR_CNT' },
+        ]
+        const categoriesInst = [
+          { label: '기관추천', suply: 'INSTT_RECOMEND_HSHLDCO', dcsn: 'INSTT_RECOMEND_DCSN_CNT', prep: 'INSTT_RECOMEND_PREPAR_CNT' },
+          { label: '이전기관', suply: 'TRANSR_INSTT_ENFSN_HSHLDCO', dcsn: 'TRANSR_INSTT_ENFSN_CNT', prep: '' },
+        ]
+
+        return (
+          <div className="border-t border-blue-50 pt-3">
+            <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 신청현황 (청약홈 동일)</p>
+            <div className="space-y-2">
+              {spsplyByType.map((entry) => {
+                const d = entry.data
+                const totalSuply = categoriesArea.reduce((s, c) => s + parseInt(d[c.suply] || '0', 10), 0)
+                  + categoriesInst.reduce((s, c) => s + parseInt(d[c.suply] || '0', 10), 0)
+                if (totalSuply === 0) return null
+
+                // 주택형 표시명
+                const typeLabel = entry.type.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, num, suffix) => {
+                  return Math.floor(parseFloat(entry.type)) + String(suffix).toUpperCase()
+                })
+
+                return (
+                  <div key={entry.type} className="bg-blue-50 rounded-lg p-2">
+                    <p className="text-xs font-bold text-blue-700 mb-1.5">{typeLabel}㎡</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[10px]">
+                        <thead>
+                          <tr className="text-gray-500">
+                            <th className="text-left font-medium">구분</th>
+                            <th className="text-center font-medium">배정</th>
+                            <th className="text-center font-medium">해당</th>
+                            <th className="text-center font-medium">경기</th>
+                            <th className="text-center font-medium">기타</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {categoriesArea.filter(c => parseInt(d[c.suply] || '0', 10) > 0).map((c) => {
+                            const suply = parseInt(d[c.suply] || '0', 10)
+                            const crsp = parseInt(d[c.crsp] || '0', 10)
+                            const ctprvn = parseInt(d[c.ctprvn] || '0', 10)
+                            const etc = parseInt(d[c.etc] || '0', 10)
+                            return (
+                              <tr key={c.label} className="border-t border-blue-100">
+                                <td className="text-gray-700 font-medium py-0.5">{c.label}</td>
+                                <td className="text-center text-gray-600">{suply}</td>
+                                <td className="text-center text-blue-700 font-semibold">{crsp}</td>
+                                <td className="text-center text-blue-600">{ctprvn}</td>
+                                <td className="text-center text-blue-600">{etc}</td>
+                              </tr>
+                            )
+                          })}
+                          {categoriesInst.filter(c => parseInt(d[c.suply] || '0', 10) > 0).map((c) => {
+                            const suply = parseInt(d[c.suply] || '0', 10)
+                            const dcsn = parseInt(d[c.dcsn] || '0', 10)
+                            const prep = c.prep ? parseInt(d[c.prep] || '0', 10) : 0
+                            return (
+                              <tr key={c.label} className="border-t border-blue-100">
+                                <td className="text-gray-700 font-medium py-0.5">{c.label}</td>
+                                <td className="text-center text-gray-600">{suply}</td>
+                                <td colSpan={3} className="text-center text-blue-700 font-semibold">
+                                  {c.prep ? `${dcsn}(${prep})` : `${dcsn}`}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1.5">
+              ※ 해당=해당지역, 경기=기타경기, 기타=기타지역 / 기관추천: 결정(미결)
+            </p>
+          </div>
+        )
+      })()}
+
       {/* 하단 버튼 */}
       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
         <a
