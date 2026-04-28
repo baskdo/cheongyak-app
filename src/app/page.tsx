@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 
 // ===================== TYPES =====================
 type TypeDetail = {
@@ -1049,6 +1049,18 @@ export default function Home() {
   const [noticeItems, setNoticeItems] = useState<ApartmentItem[]>([])
   const [noticeLoading, setNoticeLoading] = useState(false)
   const [noticeLoaded, setNoticeLoaded] = useState(false)
+
+  // 캐시-퍼스트 전략: 마지막 fetch 시각 추적 (TTL 5분)
+  const lastFetchAt = useRef<{
+    notice: number
+    noticeRecent: number
+    spsply: number
+    cmpet: number
+  }>({ notice: 0, noticeRecent: 0, spsply: 0, cmpet: 0 })
+  const CACHE_TTL_MS = 5 * 60 * 1000 // 5분
+
+  // 백그라운드 갱신 중 인디케이터 (스피너 대체)
+  const [bgRefreshing, setBgRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isDummy, setIsDummy] = useState(false)
   const [selectedRegion, setSelectedRegion] = useState('전체')
@@ -1076,24 +1088,36 @@ export default function Home() {
   const yearButtons = getFixedYearButtons()
 
   // [접수현황 조회] 탭용: 풀로딩 (과거 데이터까지)
-  const fetchNotice = useCallback(async (fresh = false) => {
-    setLoading(true)
+  // background=true → 스켈레톤 안 보여주고 백그라운드 갱신만
+  // skipIfFresh=true → 5분 이내 데이터 있으면 fetch 스킵
+  const fetchNotice = useCallback(async (fresh = false, background = false, skipIfFresh = false) => {
+    if (skipIfFresh && Date.now() - lastFetchAt.current.notice < CACHE_TTL_MS) {
+      return
+    }
+    if (!background) setLoading(true)
+    else setBgRefreshing(true)
     try {
       const url = fresh ? '/api/apartments?fresh=1' : '/api/apartments'
       const res = await fetch(url, fresh ? { cache: 'no-store' } : undefined)
       const data = await res.json()
       setItems(data.items || [])
       setIsDummy(data.isDummy || false)
+      lastFetchAt.current.notice = Date.now()
     } catch (e) {
       console.error(e)
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
+      else setBgRefreshing(false)
     }
-  }, [])
+  }, [CACHE_TTL_MS])
 
   // [청약공고] 탭용: 가벼움 (limit=recent → 1페이지 = 1000건만)
-  const fetchNoticeRecent = useCallback(async (fresh = false) => {
-    setNoticeLoading(true)
+  const fetchNoticeRecent = useCallback(async (fresh = false, background = false, skipIfFresh = false) => {
+    if (skipIfFresh && Date.now() - lastFetchAt.current.noticeRecent < CACHE_TTL_MS) {
+      return
+    }
+    if (!background) setNoticeLoading(true)
+    else setBgRefreshing(true)
     try {
       const url = fresh
         ? '/api/apartments?limit=recent&fresh=1'
@@ -1103,30 +1127,42 @@ export default function Home() {
       setNoticeItems(data.items || [])
       setIsDummy(data.isDummy || false)
       setNoticeLoaded(true)
+      lastFetchAt.current.noticeRecent = Date.now()
     } catch (e) {
       console.error(e)
     } finally {
-      setNoticeLoading(false)
+      if (!background) setNoticeLoading(false)
+      else setBgRefreshing(false)
     }
-  }, [])
+  }, [CACHE_TTL_MS])
 
-  const fetchSpecialSupply = useCallback(async (fresh = true) => {
-    setSpsplyLoading(true)
+  const fetchSpecialSupply = useCallback(async (fresh = true, background = false, skipIfFresh = false) => {
+    if (skipIfFresh && Date.now() - lastFetchAt.current.spsply < CACHE_TTL_MS) {
+      return
+    }
+    if (!background) setSpsplyLoading(true)
+    else setBgRefreshing(true)
     try {
       const params = new URLSearchParams()
       if (fresh) params.set('fresh', '1')
       const res = await fetch(`/api/special-supply?${params.toString()}`, { cache: 'no-store' })
       const data = await res.json()
       setSpsplyItems(data.items || [])
+      lastFetchAt.current.spsply = Date.now()
     } catch (e) {
       console.error('special-supply fetch error:', e)
     } finally {
-      setSpsplyLoading(false)
+      if (!background) setSpsplyLoading(false)
+      else setBgRefreshing(false)
     }
-  }, [])
+  }, [CACHE_TTL_MS])
 
-  const fetchCompetition = useCallback(async (kw = '', region = '전체', ymFrom = '', ymTo = '') => {
-    setCmpetLoading(true)
+  const fetchCompetition = useCallback(async (kw = '', region = '전체', ymFrom = '', ymTo = '', background = false, skipIfFresh = false) => {
+    if (skipIfFresh && Date.now() - lastFetchAt.current.cmpet < CACHE_TTL_MS) {
+      return
+    }
+    if (!background) setCmpetLoading(true)
+    else setBgRefreshing(true)
     try {
       const params = new URLSearchParams()
       if (kw) params.set('keyword', kw)
@@ -1138,12 +1174,14 @@ export default function Home() {
       const data = await res.json()
       setCmpetItems(data.items || [])
       setCmpetLoaded(true)
+      lastFetchAt.current.cmpet = Date.now()
     } catch (e) {
       console.error(e)
     } finally {
-      setCmpetLoading(false)
+      if (!background) setCmpetLoading(false)
+      else setBgRefreshing(false)
     }
-  }, [])
+  }, [CACHE_TTL_MS])
 
   useEffect(() => {
     // 앱 진입 시 가벼운 청약공고 데이터만 로드 (최근 1000건)
@@ -1155,11 +1193,17 @@ export default function Home() {
     setPeriodKey(range.key)
     setYearMonthFrom(range.from)
     setYearMonthTo(range.to)
-    // 앱 시작 시 경쟁률 + 특공 데이터 백그라운드 프리페치 (탭 클릭 전에 미리 로딩)
+    // 앱 시작 시 백그라운드 프리페치 (모든 탭에 필요한 데이터를 미리 로딩)
+    // 1단계: 2초 뒤 — 가벼운 데이터 (특공, 경쟁률)
     setTimeout(() => {
-      fetchCompetition('', '전체', range.from, range.to)
-      fetchSpecialSupply(false) // 캐시 활용 (10분)
+      fetchCompetition('', '전체', range.from, range.to, true) // background=true
+      fetchSpecialSupply(false, true) // 캐시 활용 + background
     }, 2000)
+    // 2단계: 5초 뒤 — 무거운 데이터 (청약공고 풀로딩)
+    // 사용자가 [접수현황 조회]에서 "12개월/연도별" 선택 시 즉시 보여주기 위함
+    setTimeout(() => {
+      fetchNotice(false, true) // background=true
+    }, 5000)
   }, [])
 
   useEffect(() => {
@@ -1173,34 +1217,35 @@ export default function Home() {
     }
   }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo, fetchSpecialSupply, spsplyItems.length])
 
-  // 접수현황 탭 - 진입 시 청약공고 + 특별공급 + 1순위 경쟁률 호출
-  // '이번 주' 선택일 때만 fresh, 그 외에는 캐시 사용
+  // 접수현황 탭 - 진입 시 캐시-퍼스트 (5분 이내 데이터면 fetch 스킵)
+  // '이번 주' 선택일 때만 fresh, 그 외에는 캐시 활용
   useEffect(() => {
     if (activeTab !== 'thisweek') return
     const isThisWeekSelected = thisWeekPeriod === 'thisweek'
 
     // 기간에 따른 청약공고 데이터 로드 분기
-    // - 이번 주/3개월: 가벼운 데이터(최근 1000건)로 충분
-    // - 12개월 이상/연도별: 풀로딩 필요
     const needsFullData = thisWeekPeriod === '12m'
       || /^\d{4}$/.test(thisWeekPeriod) // '2021'~'2025' 등 연도 키
-    if (needsFullData) {
-      fetchNotice()
-    } else {
-      fetchNoticeRecent(isThisWeekSelected) // 이번 주만 fresh
-    }
 
-    fetchSpecialSupply(isThisWeekSelected)
-    // 1순위 데이터: 사용자가 선택한 기간에 맞춰 호출
-    // '이번 주' 선택 시에는 최근 1년 범위 (LIVE 모드 호환)
+    // '이번 주' 선택 시 LIVE 모드 호환을 위해 fresh 호출, 그 외엔 캐시 재활용 + 백그라운드 갱신
     if (isThisWeekSelected) {
+      // 이번 주: 데이터 있어도 백그라운드 갱신 (LIVE 모드 호환), 단 5분 이내면 스킵
+      fetchNoticeRecent(false, noticeItems.length > 0, true)
+      fetchSpecialSupply(false, spsplyItems.length > 0, true)
       const range = getRecent1YearRange(new Date())
-      fetchCompetition('', '전체', range.from, range.to)
+      fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0, true)
     } else {
+      // 과거 기간: 데이터 있으면 백그라운드 갱신, 없으면 일반 로딩
+      if (needsFullData) {
+        fetchNotice(false, items.length > 0, true)
+      } else {
+        fetchNoticeRecent(false, noticeItems.length > 0, true)
+      }
+      fetchSpecialSupply(false, spsplyItems.length > 0, true)
       const ym = getPeriodYmRange(thisWeekPeriod)
-      fetchCompetition('', '전체', ym.from, ym.to)
+      fetchCompetition('', '전체', ym.from, ym.to, cmpetItems.length > 0, true)
     }
-  }, [activeTab, thisWeekPeriod, fetchNotice, fetchNoticeRecent, fetchSpecialSupply, fetchCompetition])
+  }, [activeTab, thisWeekPeriod])
 
   // 발표 시간대(평일 19:30~21:00)엔 30초마다 자동 새로고침 — '이번 주' 선택 시에만
   useEffect(() => {
@@ -1209,10 +1254,11 @@ export default function Home() {
     if (!isLiveTime()) return
 
     const interval = setInterval(() => {
-      fetchNoticeRecent(true)
-      fetchSpecialSupply(true)
+      // LIVE 갱신은 항상 fresh + 백그라운드
+      fetchNoticeRecent(true, true)
+      fetchSpecialSupply(true, true)
       const range = getRecent1YearRange(new Date())
-      fetchCompetition('', '전체', range.from, range.to)
+      fetchCompetition('', '전체', range.from, range.to, true)
     }, 30000)
 
     return () => clearInterval(interval)
@@ -1244,26 +1290,27 @@ export default function Home() {
 
           <button
             onClick={() => {
+              // 새로고침 버튼: 강제 fresh + 백그라운드 모드 (스켈레톤 안 깜빡임)
               if (activeTab === 'notice') {
-                fetchNoticeRecent(true)
+                fetchNoticeRecent(true, noticeItems.length > 0)
               } else if (activeTab === 'competition') {
-                fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo)
+                fetchCompetition(keyword, cmpetRegion, yearMonthFrom, yearMonthTo, cmpetItems.length > 0)
               } else {
                 // 접수현황 조회 탭
                 const isThisWeekSelected = thisWeekPeriod === 'thisweek'
                 const needsFullData = thisWeekPeriod === '12m' || /^\d{4}$/.test(thisWeekPeriod)
                 if (needsFullData) {
-                  fetchNotice(true)
+                  fetchNotice(true, items.length > 0)
                 } else {
-                  fetchNoticeRecent(true)
+                  fetchNoticeRecent(true, noticeItems.length > 0)
                 }
-                fetchSpecialSupply(isThisWeekSelected)
+                fetchSpecialSupply(true, spsplyItems.length > 0)
                 if (isThisWeekSelected) {
                   const range = getRecent1YearRange(new Date())
-                  fetchCompetition('', '전체', range.from, range.to)
+                  fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0)
                 } else {
                   const ym = getPeriodYmRange(thisWeekPeriod)
-                  fetchCompetition('', '전체', ym.from, ym.to)
+                  fetchCompetition('', '전체', ym.from, ym.to, cmpetItems.length > 0)
                 }
               }
             }}
@@ -1466,7 +1513,15 @@ export default function Home() {
           <>
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-4">
               <div>
-                <p className="text-sm font-semibold text-gray-700 mb-1">📅 접수현황 조회</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-gray-700 mb-1">📅 접수현황 조회</p>
+                  {bgRefreshing && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-400">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                      갱신 중
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500">
                   {(() => {
                     const { start, end, label } = getPeriodRange(thisWeekPeriod)
@@ -1574,7 +1629,8 @@ export default function Home() {
                     </span>
                   </p>
                   <div className="flex flex-col gap-4">
-                    {loading || spsplyLoading ? (
+                    {/* 첫 진입(데이터 없음) + 로딩 중일 때만 스켈레톤 */}
+                    {(loading || spsplyLoading) && items.length === 0 && noticeItems.length === 0 ? (
                       Array(3).fill(0).map((_, i) => <SkeletonCard key={i} />)
                     ) : thisWeekItems.length > 0 ? (
                       thisWeekItems.map(notice => {
