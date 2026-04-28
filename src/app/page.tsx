@@ -46,6 +46,30 @@ type HouseTypeRate = {
   spsply?: Record<string, string>
 }
 
+type SpecialSupplyCategory = {
+  name: string
+  suply: number
+  areaData?: { 해당: number; 기타경기: number; 기타지역: number }
+  instData?: { 결정: number; 미결: number }
+}
+
+type SpecialSupplyHouseType = {
+  type: string
+  typeLabel: string
+  spsplyHshldco: number
+  categories: SpecialSupplyCategory[]
+}
+
+type SpecialSupplyItem = {
+  pblancNo: string
+  houseName: string
+  region: string
+  rceptBgnde: string
+  rceptEndde: string
+  subscrptResultNm: string
+  houseTypes: SpecialSupplyHouseType[]
+}
+
 type CompetitionItem = {
   pblancNo: string
   houseName: string
@@ -583,10 +607,10 @@ function isLiveTime(): boolean {
 // ===================== 금주 접수현황 카드 =====================
 function ThisWeekCard({
   notice,
-  competition,
+  specialSupply,
 }: {
   notice: ApartmentItem
-  competition: CompetitionItem | null
+  specialSupply: SpecialSupplyItem | null
 }) {
   // 접수 종료 시간이 지났는지
   const now = new Date()
@@ -598,29 +622,8 @@ function ThisWeekCard({
   const annDate = notice.przwnerPresnatnDe ? new Date(notice.przwnerPresnatnDe) : null
   const announcementPassed = annDate ? now >= annDate : false
 
-  const hasRateData = competition && competition.houseTypes.length > 0
-
-  // 1순위 평균경쟁률 계산
-  let avgRate = 0
-  let rank1TotalSuply = 0
-  if (competition) {
-    const rank1Items = competition.houseTypes.filter((h) => h.rank === '1')
-    const rank1TotalReqCnt = rank1Items.reduce(
-      (sum, h) => sum + parseInt(h.reqCnt || '0', 10),
-      0
-    )
-    const suplyByType: Record<string, number> = {}
-    rank1Items.forEach((h) => {
-      const key = h.type.trim()
-      if (!(key in suplyByType)) {
-        suplyByType[key] = parseInt(h.suply || '0', 10)
-      }
-    })
-    rank1TotalSuply = Object.values(suplyByType).reduce((sum, n) => sum + n, 0)
-    avgRate = rank1TotalSuply > 0
-      ? Math.round((rank1TotalReqCnt / rank1TotalSuply) * 100) / 100
-      : 0
-  }
+  const hasSpsplyData = specialSupply && specialSupply.houseTypes.length > 0
+  const spsplyResultName = specialSupply?.subscrptResultNm || ''
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover flex flex-col gap-3">
@@ -673,7 +676,7 @@ function ThisWeekCard({
           </div>
         )}
 
-        {announcementPassed && !hasRateData && (
+        {announcementPassed && !hasSpsplyData && (
           // 발표 시간 지났는데 데이터 없음
           <div className="bg-rose-50 rounded-xl p-3 text-center">
             <p className="text-sm font-semibold text-rose-700">🔴 발표 진행중...</p>
@@ -689,128 +692,73 @@ function ThisWeekCard({
           </div>
         )}
 
-        {announcementPassed && hasRateData && rank1TotalSuply > 0 && (
-          // 발표 완료 - 경쟁률 표시
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">1순위 평균경쟁률</span>
-              <span
-                className={`text-sm font-bold px-2 py-0.5 rounded-full ${
-                  avgRate >= 10
-                    ? 'bg-red-100 text-red-600'
-                    : avgRate >= 1
-                      ? 'bg-orange-100 text-orange-600'
-                      : avgRate > 0
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-gray-100 text-gray-500'
-                }`}
-              >
-                {avgRate.toFixed(2)} : 1
-              </span>
-              {avgRate < 1 && <span className="text-xs text-gray-400">(미달)</span>}
-            </div>
+        {hasSpsplyData && (
+          // 특별공급 데이터가 있으면 결과 박스 표시
+          <div className="bg-emerald-50 rounded-xl p-3 text-center">
+            <p className="text-sm font-semibold text-emerald-700">✅ 특별공급 접수 결과</p>
+            <p className="text-xs text-emerald-600 mt-1">{spsplyResultName || '데이터 수신됨'}</p>
           </div>
         )}
       </div>
 
       {/* 특별공급 신청현황 - 청약홈 표 형식 */}
-      {(() => {
-        if (!competition) return null
-        // 모든 주택형의 spsply 데이터 모으기
-        const spsplyByType: { type: string; data: Record<string, string> }[] = []
-        competition.houseTypes.forEach((h) => {
-          if (h.spsply && !spsplyByType.find(x => x.type === h.type)) {
-            spsplyByType.push({ type: h.type, data: h.spsply })
-          }
-        })
-        if (spsplyByType.length === 0) return null
-
-        // 청약홈 표 분류
-        const categoriesArea = [
-          { label: '다자녀', suply: 'MNYCH_HSHLDCO', crsp: 'CRSPAREA_MNYCH_CNT', ctprvn: 'CTPRVN_MNYCH_CNT', etc: 'ETC_AREA_MNYCH_CNT' },
-          { label: '신혼부부', suply: 'NWWDS_NMTW_HSHLDCO', crsp: 'CRSPAREA_NWWDS_NMTW_CNT', ctprvn: 'CTPRVN_NWWDS_NMTW_CNT', etc: 'ETC_AREA_NWWDS_NMTW_CNT' },
-          { label: '생애최초', suply: 'LFE_FRST_HSHLDCO', crsp: 'CRSPAREA_LFE_FRST_CNT', ctprvn: 'CTPRVN_LFE_FRST_CNT', etc: 'ETC_AREA_LFE_FRST_CNT' },
-          { label: '청년', suply: 'YGMN_HSHLDCO', crsp: 'CRSPAREA_YGMN_CNT', ctprvn: 'CTPRVN_YGMN_CNT', etc: 'ETC_AREA_YGMN_CNT' },
-          { label: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', crsp: 'CRSPAREA_OPS_CNT', ctprvn: 'CTPRVN_OPS_CNT', etc: 'ETC_AREA_OPS_CNT' },
-          { label: '신생아', suply: 'NWBB_NWBBSHR_HSHLDCO', crsp: 'CRSPAREA_NWBB_NWBBSHR_CNT', ctprvn: 'CTPRVN_NWBB_NWBBSHR_CNT', etc: 'ETC_AREA_NWBB_NWBBSHR_CNT' },
-        ]
-        const categoriesInst = [
-          { label: '기관추천', suply: 'INSTT_RECOMEND_HSHLDCO', dcsn: 'INSTT_RECOMEND_DCSN_CNT', prep: 'INSTT_RECOMEND_PREPAR_CNT' },
-          { label: '이전기관', suply: 'TRANSR_INSTT_ENFSN_HSHLDCO', dcsn: 'TRANSR_INSTT_ENFSN_CNT', prep: '' },
-        ]
-
-        return (
-          <div className="border-t border-blue-50 pt-3">
-            <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 신청현황 (청약홈 동일)</p>
-            <div className="space-y-2">
-              {spsplyByType.map((entry) => {
-                const d = entry.data
-                const totalSuply = categoriesArea.reduce((s, c) => s + parseInt(d[c.suply] || '0', 10), 0)
-                  + categoriesInst.reduce((s, c) => s + parseInt(d[c.suply] || '0', 10), 0)
-                if (totalSuply === 0) return null
-
-                // 주택형 표시명
-                const typeLabel = entry.type.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, num, suffix) => {
-                  return Math.floor(parseFloat(entry.type)) + String(suffix).toUpperCase()
-                })
-
-                return (
-                  <div key={entry.type} className="bg-blue-50 rounded-lg p-2">
-                    <p className="text-xs font-bold text-blue-700 mb-1.5">{typeLabel}㎡</p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-[10px]">
-                        <thead>
-                          <tr className="text-gray-500">
-                            <th className="text-left font-medium">구분</th>
-                            <th className="text-center font-medium">배정</th>
-                            <th className="text-center font-medium">해당</th>
-                            <th className="text-center font-medium">경기</th>
-                            <th className="text-center font-medium">기타</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {categoriesArea.filter(c => parseInt(d[c.suply] || '0', 10) > 0).map((c) => {
-                            const suply = parseInt(d[c.suply] || '0', 10)
-                            const crsp = parseInt(d[c.crsp] || '0', 10)
-                            const ctprvn = parseInt(d[c.ctprvn] || '0', 10)
-                            const etc = parseInt(d[c.etc] || '0', 10)
-                            return (
-                              <tr key={c.label} className="border-t border-blue-100">
-                                <td className="text-gray-700 font-medium py-0.5">{c.label}</td>
-                                <td className="text-center text-gray-600">{suply}</td>
-                                <td className="text-center text-blue-700 font-semibold">{crsp}</td>
-                                <td className="text-center text-blue-600">{ctprvn}</td>
-                                <td className="text-center text-blue-600">{etc}</td>
-                              </tr>
-                            )
-                          })}
-                          {categoriesInst.filter(c => parseInt(d[c.suply] || '0', 10) > 0).map((c) => {
-                            const suply = parseInt(d[c.suply] || '0', 10)
-                            const dcsn = parseInt(d[c.dcsn] || '0', 10)
-                            const prep = c.prep ? parseInt(d[c.prep] || '0', 10) : 0
-                            return (
-                              <tr key={c.label} className="border-t border-blue-100">
-                                <td className="text-gray-700 font-medium py-0.5">{c.label}</td>
-                                <td className="text-center text-gray-600">{suply}</td>
-                                <td colSpan={3} className="text-center text-blue-700 font-semibold">
-                                  {c.prep ? `${dcsn}(${prep})` : `${dcsn}`}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <p className="text-[10px] text-gray-400 mt-1.5">
-              ※ 해당=해당지역, 경기=기타경기, 기타=기타지역 / 기관추천: 결정(미결)
-            </p>
+      {hasSpsplyData && specialSupply && (
+        <div className="border-t border-blue-50 pt-3">
+          <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황</p>
+          <div className="space-y-3">
+            {specialSupply.houseTypes.map((ht) => (
+              <div key={ht.type} className="bg-blue-50 rounded-lg p-2">
+                <p className="text-xs font-bold text-blue-700 mb-1.5">
+                  {ht.typeLabel}㎡ <span className="text-gray-500 font-normal">(공급 {ht.spsplyHshldco}세대)</span>
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[10px]">
+                    <thead>
+                      <tr className="text-gray-500">
+                        <th className="text-left font-medium py-0.5">구분</th>
+                        <th className="text-center font-medium">배정</th>
+                        <th className="text-center font-medium">해당</th>
+                        <th className="text-center font-medium">경기</th>
+                        <th className="text-center font-medium">기타</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ht.categories.map((cat) => {
+                        if (cat.areaData) {
+                          return (
+                            <tr key={cat.name} className="border-t border-blue-100">
+                              <td className="text-gray-700 font-medium py-0.5">{cat.name}</td>
+                              <td className="text-center text-gray-600">{cat.suply}</td>
+                              <td className="text-center text-blue-700 font-semibold">{cat.areaData.해당}</td>
+                              <td className="text-center text-blue-600">{cat.areaData.기타경기}</td>
+                              <td className="text-center text-blue-600">{cat.areaData.기타지역}</td>
+                            </tr>
+                          )
+                        }
+                        if (cat.instData) {
+                          return (
+                            <tr key={cat.name} className="border-t border-blue-100">
+                              <td className="text-gray-700 font-medium py-0.5">{cat.name}</td>
+                              <td className="text-center text-gray-600">{cat.suply}</td>
+                              <td colSpan={3} className="text-center text-blue-700 font-semibold">
+                                {cat.name === '기관추천' ? `${cat.instData.결정}(${cat.instData.미결})` : `${cat.instData.결정}`}
+                              </td>
+                            </tr>
+                          )
+                        }
+                        return null
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
-        )
-      })()}
+          <p className="text-[10px] text-gray-400 mt-1.5">
+            ※ 해당=해당지역, 경기=기타경기, 기타=기타지역 / 기관추천: 결정(미결)
+          </p>
+        </div>
+      )}
 
       {/* 하단 버튼 */}
       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
@@ -898,6 +846,21 @@ export default function Home() {
     }
   }, [])
 
+  const fetchSpecialSupply = useCallback(async (fresh = true) => {
+    setSpsplyLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (fresh) params.set('fresh', '1')
+      const res = await fetch(`/api/special-supply?${params.toString()}`, { cache: 'no-store' })
+      const data = await res.json()
+      setSpsplyItems(data.items || [])
+    } catch (e) {
+      console.error('special-supply fetch error:', e)
+    } finally {
+      setSpsplyLoading(false)
+    }
+  }, [])
+
   const fetchCompetition = useCallback(async (kw = '', region = '전체', ymFrom = '', ymTo = '', fresh = false) => {
     setCmpetLoading(true)
     try {
@@ -941,29 +904,25 @@ export default function Home() {
     }
   }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo])
 
-  // 금주 접수현황 탭 - 항상 최신 데이터를 가져옴 (캐시 무력화)
+  // 금주 접수현황 탭 - 진입 시 청약공고 + 특별공급 데이터 fresh 호출
   useEffect(() => {
     if (activeTab !== 'thisweek') return
-    if (!yearMonthFrom || !yearMonthTo) return
-    // 탭 진입 즉시 최신 데이터 호출
     fetchNotice()
-    fetchCompetition('', '전체', yearMonthFrom, yearMonthTo, true)
-  }, [activeTab, yearMonthFrom, yearMonthTo, fetchNotice, fetchCompetition])
+    fetchSpecialSupply(true)
+  }, [activeTab, fetchNotice, fetchSpecialSupply])
 
-  // 금주 접수현황 탭 - 발표 시간대(평일 19:30~21:00)에 30초마다 자동 새로고침
+  // 발표 시간대(평일 19:30~21:00)엔 30초마다 자동 새로고침
   useEffect(() => {
     if (activeTab !== 'thisweek') return
     if (!isLiveTime()) return
 
     const interval = setInterval(() => {
       fetchNotice()
-      if (yearMonthFrom && yearMonthTo) {
-        fetchCompetition('', '전체', yearMonthFrom, yearMonthTo, true)
-      }
-    }, 30000) // 30초
+      fetchSpecialSupply(true)
+    }, 30000)
 
     return () => clearInterval(interval)
-  }, [activeTab, fetchNotice, fetchCompetition, yearMonthFrom, yearMonthTo])
+  }, [activeTab, fetchNotice, fetchSpecialSupply])
 
   const filteredNotice = items.filter(item => {
     const regionMatch = selectedRegion === '전체' || item.region === selectedRegion
@@ -1213,9 +1172,9 @@ export default function Home() {
                       Array(3).fill(0).map((_, i) => <SkeletonCard key={i} />)
                     ) : thisWeekItems.length > 0 ? (
                       thisWeekItems.map(notice => {
-                        // 매칭되는 경쟁률 데이터 찾기
-                        const matched = cmpetItems.find(c => c.pblancNo === notice.id) || null
-                        return <ThisWeekCard key={notice.id} notice={notice} competition={matched} />
+                        // 매칭되는 특별공급 데이터 찾기
+                        const matched = spsplyItems.find(s => s.pblancNo === notice.id) || null
+                        return <ThisWeekCard key={notice.id} notice={notice} specialSupply={matched} />
                       })
                     ) : (
                       <div className="col-span-3 text-center py-16 text-gray-300">
