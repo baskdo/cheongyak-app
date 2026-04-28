@@ -354,6 +354,8 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 
 // ===================== 경쟁률 카드 =====================
 function CompetitionCard({ item }: { item: CompetitionItem }) {
+  const [expanded, setExpanded] = useState(false)
+
   // 1순위 전체 평균 경쟁률 = 총 1순위 신청건수 / 총 1순위 공급세대수
   // 공급세대수는 주택형별로 1개만 카운트 (해당/기타가 중복되므로)
   const rank1Items = item.houseTypes.filter((h) => h.rank === '1')
@@ -393,6 +395,85 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
     .filter((h) => h.reside !== '해당지역')
     .reduce((sum, h) => sum + parseInt(h.reqCnt || '0', 10), 0)
   const rank2Supply = getUniqueSupplyByRank(rank2Rows)
+
+  // ===== 자세히 보기용 가공 데이터 =====
+  // 주택형 라벨 헬퍼
+  const toTypeLabel = (raw: string): string => {
+    const key = (raw || '').trim()
+    if (!key) return ''
+    const n = parseFloat(key)
+    const suffix = key.match(/[A-Za-z]+$/)?.[0] || ''
+    return Math.floor(n) + suffix.toUpperCase()
+  }
+
+  // 1순위/2순위 주택형별 집계 (해당지역/기타지역/소계/경쟁률)
+  const aggregateByType = (rank: '1' | '2') => {
+    const rows = item.houseTypes.filter((h) => h.rank === rank)
+    if (rows.length === 0) return []
+
+    const map = new Map<string, {
+      type: string
+      typeLabel: string
+      suply: number
+      local: number
+      etc: number
+    }>()
+
+    rows.forEach((h) => {
+      const key = (h.type || '').trim()
+      if (!key) return
+      const reqCnt = parseInt(h.reqCnt || '0', 10)
+      const suply = parseInt(h.suply || '0', 10)
+      const isLocal = h.reside === '해당지역'
+
+      if (!map.has(key)) {
+        map.set(key, { type: key, typeLabel: toTypeLabel(key), suply, local: 0, etc: 0 })
+      }
+      const entry = map.get(key)!
+      if (suply > entry.suply) entry.suply = suply
+      if (isLocal) entry.local += reqCnt
+      else entry.etc += reqCnt
+    })
+
+    return Array.from(map.values())
+      .sort((a, b) => a.type.localeCompare(b.type))
+      .map((e) => {
+        const total = e.local + e.etc
+        const rate = e.suply > 0 ? Math.round((total / e.suply) * 100) / 100 : 0
+        return { ...e, total, rate }
+      })
+  }
+
+  const rank1ByType = aggregateByType('1')
+  const rank2ByType = aggregateByType('2')
+
+  // 1순위에서 마감된 경우 2순위 숨김 (모든 주택형이 미달이 아니면 마감된 것으로 판단)
+  // 단, API에서 2순위 행 자체가 없거나 모두 0이면 렌더링 안 함
+  const rank2HasAnyData = rank2ByType.some((r) => r.suply > 0 && r.total > 0)
+  const showRank2 = rank2HasAnyData
+
+  // 특별공급 데이터 가공 (자세히 보기용)
+  const spsplyRowDetail = item.houseTypes.find((h) => h.spsply)?.spsply
+  const spsplyDetailRows = (() => {
+    if (!spsplyRowDetail) return [] as Array<{ name: string; suply: number; cnt: number }>
+    const types = [
+      { name: '다자녀', suply: 'MNYCH_HSHLDCO', cnt: 'CRSPAREA_MNYCH_CNT' },
+      { name: '신혼부부', suply: 'NWWDS_NMTW_HSHLDCO', cnt: 'CRSPAREA_NWWDS_NMTW_CNT' },
+      { name: '생애최초', suply: 'LFE_FRST_HSHLDCO', cnt: 'CRSPAREA_LFE_FRST_CNT' },
+      { name: '신생아', suply: 'NWBB_NWBBSHR_HSHLDCO', cnt: 'CRSPAREA_NWBB_NWBBSHR_CNT' },
+      { name: '청년', suply: 'YGMN_HSHLDCO', cnt: 'CRSPAREA_YGMN_CNT' },
+      { name: '노부모', suply: 'OLD_PARNTS_SUPORT_HSHLDCO', cnt: 'CRSPAREA_OPS_CNT' },
+    ]
+    return types
+      .map((t) => ({
+        name: t.name,
+        suply: parseInt(spsplyRowDetail[t.suply] || '0', 10),
+        cnt: parseInt(spsplyRowDetail[t.cnt] || '0', 10),
+      }))
+      .filter((r) => r.suply > 0)
+  })()
+  const spsplyDetailTotalSuply = spsplyDetailRows.reduce((s, r) => s + r.suply, 0)
+  const spsplyDetailTotalCnt = spsplyDetailRows.reduce((s, r) => s + r.cnt, 0)
 
   const spsplyRow = item.houseTypes.find((h) => h.spsply)?.spsply
   let specialTotalReq = 0
@@ -531,6 +612,200 @@ function CompetitionCard({ item }: { item: CompetitionItem }) {
           </div>
         )
       })()}
+
+      {/* 자세히 보기 토글 */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className={`w-full mt-1 py-2 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 ${
+          expanded
+            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+            : 'bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100'
+        }`}
+      >
+        <span>📋 자세히 보기</span>
+        <span className={`transition-transform ${expanded ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+
+      {/* 펼침 영역: 특별공급 / 1순위 / 2순위 표 */}
+      {expanded && (
+        <div className="space-y-4 pt-2">
+          {/* 특별공급 표 */}
+          {spsplyDetailRows.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px] border-collapse">
+                  <thead>
+                    <tr className="bg-blue-50 text-gray-700">
+                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">구분</th>
+                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">공급세대</th>
+                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">접수건수</th>
+                      <th className="border border-blue-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {spsplyDetailRows.map((r) => {
+                      const rate = r.suply > 0 ? Math.round((r.cnt / r.suply) * 100) / 100 : 0
+                      return (
+                        <tr key={r.name} className="hover:bg-gray-50">
+                          <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-blue-700">{r.name}</td>
+                          <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.suply.toLocaleString()}</td>
+                          <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.cnt > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.cnt.toLocaleString()}</td>
+                          <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${rate >= 1 ? 'text-blue-700' : 'text-gray-500'}`}>
+                            {r.suply > 0
+                              ? (rate < 1 ? `미달 (${rate.toFixed(2)})` : `${rate.toFixed(2)} 대 1`)
+                              : '-'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    <tr className="bg-amber-50 border-t-2 border-amber-300">
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">계</td>
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{spsplyDetailTotalSuply.toLocaleString()}</td>
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">{spsplyDetailTotalCnt.toLocaleString()}</td>
+                      <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold ${spsplyDetailTotalSuply > 0 && spsplyDetailTotalCnt / spsplyDetailTotalSuply >= 1 ? 'text-blue-700' : 'text-gray-500'}`}>
+                        {spsplyDetailTotalSuply > 0
+                          ? (() => {
+                              const r = Math.round((spsplyDetailTotalCnt / spsplyDetailTotalSuply) * 100) / 100
+                              return r < 1 ? `미달 (${r.toFixed(2)})` : `${r.toFixed(2)} 대 1`
+                            })()
+                          : '-'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* 1순위 표 */}
+          {rank1ByType.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-rose-600 mb-2">📊 일반공급 1순위 청약접수 현황</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px] border-collapse">
+                  <thead>
+                    <tr className="bg-rose-50 text-gray-700">
+                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">타입</th>
+                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">공급<br/>세대</th>
+                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
+                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
+                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">소계</th>
+                      <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rank1ByType.map((r) => (
+                      <tr key={r.type} className="hover:bg-gray-50">
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-rose-700">{r.typeLabel}</td>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.suply.toLocaleString()}</td>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.local.toLocaleString()}</td>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.etc.toLocaleString()}</td>
+                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.total.toLocaleString()}</td>
+                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${r.rate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
+                          {r.suply > 0
+                            ? (r.rate < 1 ? `미달 (${r.rate.toFixed(2)})` : `${r.rate.toFixed(2)} 대 1`)
+                            : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                    {(() => {
+                      const tSuply = rank1ByType.reduce((s, r) => s + r.suply, 0)
+                      const tLocal = rank1ByType.reduce((s, r) => s + r.local, 0)
+                      const tEtc = rank1ByType.reduce((s, r) => s + r.etc, 0)
+                      const tTotal = tLocal + tEtc
+                      const tRate = tSuply > 0 ? Math.round((tTotal / tSuply) * 100) / 100 : 0
+                      return (
+                        <tr className="bg-amber-50 border-t-2 border-amber-300">
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">계</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tSuply.toLocaleString()}</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tLocal.toLocaleString()}</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tEtc.toLocaleString()}</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">{tTotal.toLocaleString()}</td>
+                          <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold ${tRate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
+                            {tSuply > 0
+                              ? (tRate < 1 ? `미달 (${tRate.toFixed(2)})` : `${tRate.toFixed(2)} 대 1`)
+                              : '-'}
+                          </td>
+                        </tr>
+                      )
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* 2순위 표 (1순위에서 마감되지 않은 단지만) */}
+          {showRank2 && (
+            <div>
+              <p className="text-xs font-semibold text-purple-600 mb-2">📊 일반공급 2순위 청약접수 현황</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px] border-collapse">
+                  <thead>
+                    <tr className="bg-purple-50 text-gray-700">
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">타입</th>
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">공급<br/>세대</th>
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">소계</th>
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rank2ByType.filter((r) => r.suply > 0).map((r) => (
+                      <tr key={r.type} className="hover:bg-gray-50">
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-purple-700">{r.typeLabel}</td>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.suply.toLocaleString()}</td>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.local.toLocaleString()}</td>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">{r.etc.toLocaleString()}</td>
+                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.total.toLocaleString()}</td>
+                        <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${r.rate >= 1 ? 'text-purple-700' : 'text-gray-500'}`}>
+                          {r.suply > 0
+                            ? (r.rate < 1 ? `미달 (${r.rate.toFixed(2)})` : `${r.rate.toFixed(2)} 대 1`)
+                            : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                    {(() => {
+                      const filtered = rank2ByType.filter((r) => r.suply > 0)
+                      const tSuply = filtered.reduce((s, r) => s + r.suply, 0)
+                      const tLocal = filtered.reduce((s, r) => s + r.local, 0)
+                      const tEtc = filtered.reduce((s, r) => s + r.etc, 0)
+                      const tTotal = tLocal + tEtc
+                      const tRate = tSuply > 0 ? Math.round((tTotal / tSuply) * 100) / 100 : 0
+                      return (
+                        <tr className="bg-amber-50 border-t-2 border-amber-300">
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">계</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tSuply.toLocaleString()}</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tLocal.toLocaleString()}</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">{tEtc.toLocaleString()}</td>
+                          <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">{tTotal.toLocaleString()}</td>
+                          <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold ${tRate >= 1 ? 'text-purple-700' : 'text-gray-500'}`}>
+                            {tSuply > 0
+                              ? (tRate < 1 ? `미달 (${tRate.toFixed(2)})` : `${tRate.toFixed(2)} 대 1`)
+                              : '-'}
+                          </td>
+                        </tr>
+                      )
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1.5">
+                ※ 1순위에서 마감되지 않은 단지만 2순위 표시
+              </p>
+            </div>
+          )}
+
+          {/* 1순위 마감 안내 */}
+          {!showRank2 && rank1ByType.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-600">✅ 1순위에서 마감되어 2순위 청약 미접수</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 하단 버튼: 네이버지도 + 청약홈 상세 */}
       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100">
@@ -988,6 +1263,11 @@ export default function Home() {
   const [yearMonthFrom, setYearMonthFrom] = useState('')
   const [yearMonthTo, setYearMonthTo] = useState('')
 
+  // 금주 접수현황 탭 전용 필터
+  const [thisWeekRegion, setThisWeekRegion] = useState('전체')
+  const [thisWeekKeyword, setThisWeekKeyword] = useState('')
+  const [thisWeekSearchInput, setThisWeekSearchInput] = useState('')
+
   const yearButtons = getFixedYearButtons()
 
   const fetchNotice = useCallback(async () => {
@@ -1303,31 +1583,95 @@ export default function Home() {
         {/* ===== 금주 접수현황 탭 ===== */}
         {activeTab === 'thisweek' && (
           <>
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6">
-              <p className="text-sm font-semibold text-gray-700 mb-1">📅 이번 주 접수 단지</p>
-              <p className="text-xs text-gray-500">
-                {(() => {
-                  const { start, end } = getThisWeekRange()
-                  return `${formatDate(start.toISOString().slice(0, 10))} ~ ${formatDate(end.toISOString().slice(0, 10))}`
-                })()}
-              </p>
-              {isLiveTime() && (
-                <div className="mt-2 inline-flex items-center gap-1.5 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-                  </span>
-                  <span className="text-xs font-bold text-rose-700">LIVE - 결과 발표 중</span>
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-1">📅 이번 주 접수 단지</p>
+                <p className="text-xs text-gray-500">
+                  {(() => {
+                    const { start, end } = getThisWeekRange()
+                    return `${formatDate(start.toISOString().slice(0, 10))} ~ ${formatDate(end.toISOString().slice(0, 10))}`
+                  })()}
+                </p>
+                {isLiveTime() && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                    </span>
+                    <span className="text-xs font-bold text-rose-700">LIVE - 결과 발표 중</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 단지명 검색 */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={thisWeekSearchInput}
+                  onChange={e => setThisWeekSearchInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      setThisWeekKeyword(thisWeekSearchInput)
+                    }
+                  }}
+                  placeholder="단지명 검색 (예: 래미안, 힐스테이트...)"
+                  className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-400"
+                />
+                <button
+                  onClick={() => setThisWeekKeyword(thisWeekSearchInput)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  검색
+                </button>
+                {thisWeekKeyword && (
+                  <button
+                    onClick={() => {
+                      setThisWeekKeyword('')
+                      setThisWeekSearchInput('')
+                    }}
+                    className="bg-gray-100 text-gray-600 px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors"
+                    title="검색어 초기화"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* 지역 필터 */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 mb-2">📍 지역 필터</p>
+                <div className="grid grid-cols-5 sm:flex sm:flex-wrap gap-1.5 sm:gap-2">
+                  {REGIONS.map(r => (
+                    <button
+                      key={r}
+                      onClick={() => setThisWeekRegion(r)}
+                      className={`filter-btn text-xs sm:text-sm px-2 sm:px-3 py-1.5 ${thisWeekRegion === r ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                    >
+                      {r}
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
             </div>
 
             {(() => {
-              const thisWeekItems = items.filter(i => isThisWeekRecept(i.rceptBgnde, i.rceptEndde))
+              const thisWeekItems = items
+                .filter(i => isThisWeekRecept(i.rceptBgnde, i.rceptEndde))
+                .filter(i => thisWeekRegion === '전체' || i.region === thisWeekRegion)
+                .filter(i => !thisWeekKeyword || i.name.includes(thisWeekKeyword))
               return (
                 <>
                   <p className="text-sm text-blue-100 mb-4">
                     총 <span className="font-bold text-white">{thisWeekItems.length}건</span>의 단지
+                    {(thisWeekKeyword || thisWeekRegion !== '전체') && (
+                      <span className="text-xs text-blue-200/80 ml-2">
+                        (
+                        {thisWeekRegion !== '전체' && `지역: ${thisWeekRegion}`}
+                        {thisWeekRegion !== '전체' && thisWeekKeyword && ' / '}
+                        {thisWeekKeyword && `검색: ${thisWeekKeyword}`}
+                        )
+                      </span>
+                    )}
                   </p>
                   <div className="flex flex-col gap-4">
                     {loading || spsplyLoading ? (
@@ -1343,6 +1687,9 @@ export default function Home() {
                       <div className="col-span-3 text-center py-16 text-gray-300">
                         <div className="text-4xl mb-3">📅</div>
                         <p>이번 주 접수 단지가 없습니다.</p>
+                        {(thisWeekKeyword || thisWeekRegion !== '전체') && (
+                          <p className="text-xs mt-2 text-gray-400">필터를 초기화해보세요.</p>
+                        )}
                       </div>
                     )}
                   </div>
