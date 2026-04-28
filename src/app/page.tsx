@@ -643,6 +643,58 @@ function ThisWeekCard({
   const hasSpsplyData = specialSupply && specialSupply.houseTypes.length > 0
   const spsplyResultName = specialSupply?.subscrptResultNm || ''
 
+  // 캡처용 숨겨진 영역 ref
+  const captureSpsplyRef = useRef<HTMLDivElement>(null)
+  const captureRank1Ref = useRef<HTMLDivElement>(null)
+  const [capturing, setCapturing] = useState<'spsply' | 'rank1' | null>(null)
+
+  // 캡처 → PNG 다운로드
+  const downloadCapture = async (type: 'spsply' | 'rank1') => {
+    const ref = type === 'spsply' ? captureSpsplyRef : captureRank1Ref
+    if (!ref.current) return
+
+    setCapturing(type)
+    try {
+      // html2canvas 동적 import (코드 분할 - 초기 로딩 영향 없음)
+      const html2canvasModule = await import('html2canvas')
+      const html2canvas = html2canvasModule.default
+
+      const canvas = await html2canvas(ref.current, {
+        backgroundColor: '#ffffff',
+        scale: 2, // 2배 해상도로 깔끔하게
+        useCORS: true,
+        logging: false,
+      })
+
+      // PNG로 변환 후 다운로드
+      canvas.toBlob((blob) => {
+        if (!blob) return
+        const today = new Date()
+        const yyyy = today.getFullYear()
+        const mm = String(today.getMonth() + 1).padStart(2, '0')
+        const dd = String(today.getDate()).padStart(2, '0')
+        const dateStr = `${yyyy}-${mm}-${dd}`
+        const cleanName = (notice.name || '단지').replace(/[\\/:*?"<>|]/g, '_')
+        const typeLabel = type === 'spsply' ? '특공' : '1순위'
+        const filename = `${cleanName}_${typeLabel}_${dateStr}.png`
+
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }, 'image/png')
+    } catch (e) {
+      console.error('캡처 실패:', e)
+      alert('이미지 생성에 실패했습니다. 잠시 후 다시 시도해주세요.')
+    } finally {
+      setCapturing(null)
+    }
+  }
+
   // 1순위 데이터 가공: 주택형별로 해당지역/기타지역 신청건수 집계 + 경쟁률 계산
   const rank1ByType = (() => {
     if (!competition) return [] as Array<{
@@ -770,9 +822,32 @@ function ThisWeekCard({
           )
         })()}
         {hasSpsplyData && (
-          <div className="bg-emerald-50 rounded-xl p-3 text-center">
-            <p className="text-sm font-semibold text-emerald-700">✅ 특별공급 접수 결과</p>
-            <p className="text-xs text-emerald-600 mt-1">{spsplyResultName || '데이터 수신됨'}</p>
+          <div className="bg-emerald-50 rounded-xl p-3">
+            <div className="text-center">
+              <p className="text-sm font-semibold text-emerald-700">✅ 특별공급 접수 결과</p>
+              <p className="text-xs text-emerald-600 mt-1">{spsplyResultName || '데이터 수신됨'}</p>
+            </div>
+            {/* 보고용 스샷 버튼 */}
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button
+                onClick={() => downloadCapture('spsply')}
+                disabled={capturing !== null}
+                className="flex items-center justify-center gap-1 bg-white border border-emerald-200 text-emerald-700 rounded-lg py-2 text-xs font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {capturing === 'spsply' ? '⏳ 생성 중...' : '📷 특공 스샷'}
+              </button>
+              <button
+                onClick={() => downloadCapture('rank1')}
+                disabled={capturing !== null || !hasRank1Data}
+                className="flex items-center justify-center gap-1 bg-white border border-rose-200 text-rose-700 rounded-lg py-2 text-xs font-semibold hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={!hasRank1Data ? '1순위 데이터 없음' : ''}
+              >
+                {capturing === 'rank1' ? '⏳ 생성 중...' : '📷 1순위 스샷'}
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-500 text-center mt-2">
+              💡 다운로드된 이미지를 카톡에 첨부해서 보고하세요
+            </p>
           </div>
         )}
       </div>
@@ -1012,6 +1087,224 @@ function ThisWeekCard({
 
         </div>{/* 오른쪽 컬럼 끝 */}
       </div>{/* 가로 분할 영역 끝 */}
+
+      {/* ============================================================ */}
+      {/* 숨겨진 캡처용 가로 레이아웃 (화면에는 안 보임, html2canvas로만 캡처) */}
+      {/* ============================================================ */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '-99999px',
+          top: 0,
+          width: '760px',
+          pointerEvents: 'none',
+        }}
+        aria-hidden="true"
+      >
+        {/* === 특공 캡처용 === */}
+        {hasSpsplyData && specialSupply && (
+          <div ref={captureSpsplyRef} style={{ width: '760px', padding: '24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif' }}>
+            {/* 헤더: 단지명 + 접수기간 + 상태 */}
+            <div style={{ borderBottom: '2px solid #2563eb', paddingBottom: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                    📍 {notice.region} · {notice.address || ''}
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>
+                    {notice.name}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', color: '#6b7280' }}>접수기간</div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1d4ed8' }}>
+                    {formatDate(notice.rceptBgnde)} ~ {formatDate(notice.rceptEndde)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 표 제목 */}
+            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#2563eb', marginBottom: '8px' }}>
+              🎯 특별공급 청약접수 현황 (청약홈 동일)
+            </div>
+
+            {/* 표 (가로 폭 풀 활용) */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#dbeafe', color: '#374151' }}>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>주택형</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>공급<br/>세대</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>구분</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} colSpan={8}>특별공급 구분</th>
+                  <th style={{ border: '1px solid #93c5fd', padding: '8px 6px', fontWeight: 600 }} rowSpan={2}>총<br/>접수</th>
+                </tr>
+                <tr style={{ backgroundColor: '#dbeafe', color: '#4b5563' }}>
+                  {['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관'].map((label, i) => (
+                    <th key={i} style={{ border: '1px solid #93c5fd', padding: '6px 4px', fontWeight: 500 }}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {specialSupply.houseTypes.flatMap((ht) => {
+                  const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
+                  const findCat = (name: string) => ht.categories.find(c => c.name === name)
+                  const assignedRow = order.map(name => {
+                    const cat = findCat(name)
+                    return cat ? cat.suply : 0
+                  })
+                  const receivedRow = order.map(name => {
+                    const cat = findCat(name)
+                    if (!cat) return 0
+                    if (cat.areaData) return cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+                    if (cat.instData) return cat.instData.결정
+                    return 0
+                  })
+                  const totalReceived = receivedRow.reduce((s, n) => s + n, 0)
+                  return [
+                    <tr key={`${ht.type}-1`}>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center', fontWeight: 600, color: '#1d4ed8' }} rowSpan={2}>
+                        {ht.typeLabel}㎡
+                      </td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center', color: '#4b5563' }} rowSpan={2}>
+                        {ht.spsplyHshldco.toLocaleString()}
+                      </td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#6b7280', fontSize: '10px' }}>배정</td>
+                      {assignedRow.map((val, i) => (
+                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#4b5563' }}>{val ? val.toLocaleString() : '-'}</td>
+                      ))}
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px', textAlign: 'center', fontWeight: 700, color: '#ea580c' }} rowSpan={2}>
+                        {totalReceived.toLocaleString()}
+                      </td>
+                    </tr>,
+                    <tr key={`${ht.type}-2`}>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', color: '#374151', fontSize: '10px', fontWeight: 600, backgroundColor: '#dbeafe' }}>접수</td>
+                      {receivedRow.map((val, i) => (
+                        <td key={i} style={{ border: '1px solid #e5e7eb', padding: '4px', textAlign: 'center', fontWeight: 600, color: val > 0 ? '#1d4ed8' : '#9ca3af' }}>
+                          {val ? val.toLocaleString() : '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  ]
+                })}
+                {/* 합계 행 */}
+                {(() => {
+                  const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
+                  const totalSupply = specialSupply.houseTypes.reduce((sum, ht) => sum + ht.spsplyHshldco, 0)
+                  const categoryTotals = order.map(name => {
+                    return specialSupply.houseTypes.reduce((sum, ht) => {
+                      const cat = ht.categories.find(c => c.name === name)
+                      if (!cat) return sum
+                      if (cat.areaData) return sum + cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+                      if (cat.instData) return sum + cat.instData.결정
+                      return sum
+                    }, 0)
+                  })
+                  const grandTotal = categoryTotals.reduce((s, n) => s + n, 0)
+                  return (
+                    <tr style={{ backgroundColor: '#fef3c7', borderTop: '2px solid #fbbf24' }}>
+                      <td style={{ border: '1px solid #fcd34d', padding: '8px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>합계</td>
+                      <td style={{ border: '1px solid #fcd34d', padding: '8px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{totalSupply.toLocaleString()}</td>
+                      <td style={{ border: '1px solid #fcd34d', padding: '6px', textAlign: 'center', fontWeight: 700, color: '#92400e', fontSize: '10px' }}>접수</td>
+                      {categoryTotals.map((val, i) => (
+                        <td key={i} style={{ border: '1px solid #fcd34d', padding: '6px', textAlign: 'center', fontWeight: 700, color: val > 0 ? '#dc2626' : '#9ca3af' }}>
+                          {val ? val.toLocaleString() : '-'}
+                        </td>
+                      ))}
+                      <td style={{ border: '1px solid #fcd34d', padding: '8px 6px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', fontSize: '14px', backgroundColor: '#fee2e2' }}>
+                        {grandTotal.toLocaleString()}
+                      </td>
+                    </tr>
+                  )
+                })()}
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: '8px', fontSize: '10px', color: '#9ca3af' }}>
+              ※ 접수 = 해당지역+기타경기+기타지역 합계 / 기관추천·이전기관: 결정수 기준
+              <br />출처: 청약홈 (한국부동산원)
+            </div>
+          </div>
+        )}
+
+        {/* === 1순위 캡처용 === */}
+        {hasRank1Data && (
+          <div ref={captureRank1Ref} style={{ width: '760px', padding: '24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif' }}>
+            {/* 헤더 */}
+            <div style={{ borderBottom: '2px solid #e11d48', paddingBottom: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                    📍 {notice.region} · {notice.address || ''}
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#111827' }}>
+                    {notice.name}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '11px', color: '#6b7280' }}>접수기간</div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#be123c' }}>
+                    {formatDate(notice.rceptBgnde)} ~ {formatDate(notice.rceptEndde)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 표 제목 */}
+            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#e11d48', marginBottom: '8px' }}>
+              📊 일반공급 1순위 청약접수 현황
+            </div>
+
+            {/* 1순위 표 */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#ffe4e6', color: '#374151' }}>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>타입</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>공급세대</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>해당지역</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>기타지역</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>소계</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '10px 8px', fontWeight: 600 }}>경쟁률</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rank1ByType.map((r) => (
+                  <tr key={r.type}>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', fontWeight: 600, color: '#be123c' }}>{r.typeLabel}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', color: '#4b5563' }}>{r.suply.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', color: '#4b5563' }}>{r.local.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', color: '#4b5563' }}>{r.etc.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', fontWeight: 700, color: r.total > 0 ? '#dc2626' : '#9ca3af' }}>{r.total.toLocaleString()}</td>
+                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center', fontWeight: 600, color: r.rate >= 1 ? '#be123c' : '#6b7280' }}>
+                      {r.suply > 0
+                        ? (r.rate < 1 ? `미달 (${r.rate.toFixed(2)})` : `${r.rate.toFixed(2)} 대 1`)
+                        : '-'}
+                    </td>
+                  </tr>
+                ))}
+                {/* 합계 행 */}
+                <tr style={{ backgroundColor: '#fef3c7', borderTop: '2px solid #fbbf24' }}>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>계</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{rank1TotalSuply.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{rank1TotalLocal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>{rank1TotalEtc.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', backgroundColor: '#fee2e2' }}>{rank1GrandTotal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 8px', textAlign: 'center', fontWeight: 800, color: rank1AvgRate >= 1 ? '#be123c' : '#6b7280' }}>
+                    {rank1TotalSuply > 0
+                      ? (rank1AvgRate < 1 ? `미달 (${rank1AvgRate.toFixed(2)})` : `${rank1AvgRate.toFixed(2)} 대 1`)
+                      : '-'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: '8px', fontSize: '10px', color: '#9ca3af' }}>
+              ※ 1순위 해당지역 + 기타지역 신청건수 기준 / 경쟁률 = 신청건수 ÷ 공급세대수
+              <br />출처: 청약홈 (한국부동산원)
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
