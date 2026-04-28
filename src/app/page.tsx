@@ -682,24 +682,24 @@ function ThisWeekCard({
         <div>
           <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황 (청약홈 동일)</p>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+            <table className="w-full text-[11px] border-collapse">
               <thead>
                 <tr className="bg-blue-50 text-gray-700">
-                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>주택형</th>
-                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>공급<br/>세대</th>
-                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>구분</th>
-                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" colSpan={8}>특별공급 구분</th>
-                  <th className="border border-blue-100 px-2 py-1.5 font-semibold" rowSpan={2}>총<br/>접수</th>
+                  <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>주택형</th>
+                  <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>공급<br/>세대</th>
+                  <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>구분</th>
+                  <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" colSpan={8}>특별공급 구분</th>
+                  <th className="border border-blue-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>총<br/>접수</th>
                 </tr>
                 <tr className="bg-blue-50 text-gray-600">
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">다자녀</th>
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">신혼<br/>부부</th>
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">생애<br/>최초</th>
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">노부모</th>
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">신생아</th>
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">청년</th>
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">기관<br/>추천</th>
-                  <th className="border border-blue-100 px-1.5 py-1 font-medium">이전<br/>기관</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">다자녀</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">신혼<br/>부부</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">생애<br/>최초</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">노부모</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">신생아</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">청년</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">기관<br/>추천</th>
+                  <th className="border border-blue-100 px-1 py-1 font-medium">이전<br/>기관</th>
                 </tr>
               </thead>
               <tbody>
@@ -728,35 +728,80 @@ function ThisWeekCard({
 
                   return [
                     <tr key={`${ht.type}-1`} className="hover:bg-gray-50">
-                      <td className="border border-gray-200 px-2 py-1.5 text-center font-semibold text-blue-700" rowSpan={2}>
+                      <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-blue-700" rowSpan={2}>
                           {ht.typeLabel}㎡
                         </td>
-                        <td className="border border-gray-200 px-2 py-1.5 text-center text-gray-600" rowSpan={2}>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-600" rowSpan={2}>
                           {ht.spsplyHshldco}
                         </td>
-                        <td className="border border-gray-200 px-2 py-1 text-center text-gray-500 text-[10px]">배정</td>
+                        <td className="border border-gray-200 px-1 py-1 text-center text-gray-500 text-[9px]">배정</td>
                         {assignedRow.map((val, i) => (
-                          <td key={i} className="border border-gray-200 px-1 py-1 text-center text-gray-600">{val || '-'}</td>
+                          <td key={i} className="border border-gray-200 px-0.5 py-1 text-center text-gray-600">{val || '-'}</td>
                         ))}
-                        <td className="border border-gray-200 px-2 py-1.5 text-center font-bold text-orange-600" rowSpan={2}>
+                        <td className="border border-gray-200 px-1.5 py-1.5 text-center font-bold text-orange-600" rowSpan={2}>
                           {totalReceived}
                         </td>
                       </tr>,
                     <tr key={`${ht.type}-2`} className="hover:bg-gray-50">
-                      <td className="border border-gray-200 px-2 py-1 text-center text-gray-700 text-[10px] font-semibold bg-blue-50">접수</td>
+                      <td className="border border-gray-200 px-1 py-1 text-center text-gray-700 text-[9px] font-semibold bg-blue-50">접수</td>
                         {receivedRow.map((val, i) => (
-                          <td key={i} className={`border border-gray-200 px-1 py-1 text-center font-semibold ${val > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
+                          <td key={i} className={`border border-gray-200 px-0.5 py-1 text-center font-semibold ${val > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
                             {val || '-'}
                           </td>
                         ))}
                       </tr>
                   ]
                 })}
+                {/* ===== 합계 행 (전체 주택형 카테고리별 접수건수 총합) ===== */}
+                {(() => {
+                  const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
+                  const totalSupply = specialSupply.houseTypes.reduce((sum, ht) => sum + ht.spsplyHshldco, 0)
+                  const categoryTotals = order.map(name => {
+                    return specialSupply.houseTypes.reduce((sum, ht) => {
+                      const cat = ht.categories.find(c => c.name === name)
+                      if (!cat) return sum
+                      if (cat.areaData) {
+                        return sum + cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+                      }
+                      if (cat.instData) {
+                        return sum + cat.instData.결정
+                      }
+                      return sum
+                    }, 0)
+                  })
+                  const grandTotal = categoryTotals.reduce((s, n) => s + n, 0)
+
+                  return (
+                    <tr className="bg-amber-50 border-t-2 border-amber-300">
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                        합계
+                      </td>
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                        {totalSupply}
+                      </td>
+                      <td className="border border-amber-200 px-1 py-1.5 text-center font-bold text-amber-800 text-[9px]">
+                        접수
+                      </td>
+                      {categoryTotals.map((val, i) => (
+                        <td
+                          key={i}
+                          className={`border border-amber-200 px-0.5 py-1.5 text-center font-bold ${val > 0 ? 'text-red-600' : 'text-gray-400'}`}
+                        >
+                          {val || '-'}
+                        </td>
+                      ))}
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 text-[12px] bg-red-50">
+                        {grandTotal}
+                      </td>
+                    </tr>
+                  )
+                })()}
               </tbody>
             </table>
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5">
             ※ 접수 = 해당지역+기타경기+기타지역 합계 / 기관추천·이전기관: 결정수 기준
+            <br />※ <span className="text-amber-700 font-semibold">합계 행</span>은 전체 주택형 카테고리별 접수건수의 총합입니다.
           </p>
         </div>
       )}
