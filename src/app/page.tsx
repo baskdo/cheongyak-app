@@ -1225,31 +1225,60 @@ function ThisWeekCard({
         </div>
       )}
 
-      {/* 1순위 데이터 안내 */}
+      {/* 1순위 데이터 안내 - 청약홈 API 데이터 누락 가능성을 정직하게 표시 */}
       {!hasRank1Data && (() => {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
-        const endDate = notice.rceptEndde ? new Date(notice.rceptEndde) : null
-        const isPast = endDate && endDate < today
 
-        if (isPast) {
+        const endDate = notice.rceptEndde ? parseDateOnly(notice.rceptEndde) : null
+        const rank1Date = parseDateOnly(deriveRank1Date(notice))
+
+        // 청약홈 단지 상세 페이지 링크
+        const applyhomeUrl = `https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?houseManageNo=${notice.id}&pblancNo=${notice.id}`
+
+        // [상황 1] 1순위 시작 전 → 단순 안내
+        if (rank1Date && today.getTime() < rank1Date.getTime()) {
           return (
-            <div className="mt-4 bg-gray-50 rounded-xl p-3 text-center">
-              <p className="text-sm font-semibold text-gray-600">ℹ️ 1순위 경쟁률 데이터 미제공</p>
-              <p className="text-xs text-gray-500 mt-1">청약홈 API 보존 범위를 벗어난 단지일 수 있습니다</p>
+            <div className="mt-4 bg-blue-50 rounded-xl p-3 text-center">
+              <p className="text-sm font-semibold text-blue-700">📅 1순위 접수 예정</p>
+              <p className="text-xs text-blue-600 mt-1">
+                {formatShortDate(deriveRank1Date(notice))} 접수 시작
+              </p>
             </div>
           )
         }
-        // 특공은 있는데 1순위만 없는 경우 = 발표 대기 중
-        if (hasSpsplyData) {
+
+        // [상황 2] 1순위가 시작되었거나 마감 → 청약홈 API 미제공 가능성 안내
+        // (청약홈 사이트엔 있는데 공공데이터 API에서 누락되는 케이스가 있음)
+        // 특공 데이터는 없는 1순위 단독 단지일 수 있으므로 hasSpsplyData 조건 무관하게 표시
+        if (rank1Date) {
           return (
-            <div className="mt-4 bg-rose-50 rounded-xl p-3 text-center">
-              <p className="text-sm font-semibold text-rose-700">⏳ 1순위 청약접수 결과 대기 중</p>
-              <p className="text-xs text-rose-600 mt-1">접수 마감 후 익일 발표됩니다</p>
+            <div className="mt-4 bg-amber-50 rounded-xl p-3 text-center">
+              <p className="text-sm font-semibold text-amber-700">⚠️ 1순위 경쟁률 데이터 미제공</p>
+              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                청약홈 공공 API에 아직 반영되지 않았습니다.
+                <br />
+                청약홈에서 직접 확인하세요.
+              </p>
+              <a
+                href={applyhomeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 mt-2 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors"
+              >
+                🔗 청약홈에서 경쟁률 보기
+              </a>
             </div>
           )
         }
-        return null
+
+        // [상황 3] 폴백 (날짜 정보 자체가 없는 비정상 케이스)
+        return (
+          <div className="mt-4 bg-gray-50 rounded-xl p-3 text-center">
+            <p className="text-sm font-semibold text-gray-600">ℹ️ 1순위 경쟁률 데이터 미제공</p>
+            <p className="text-xs text-gray-500 mt-1">청약홈에서 직접 확인해주세요</p>
+          </div>
+        )
       })()}
 
         </div>{/* 오른쪽 컬럼 끝 */}
