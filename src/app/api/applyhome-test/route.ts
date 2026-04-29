@@ -57,20 +57,16 @@ export async function GET(request: Request) {
         })
       }
 
-      // 행(tr) 추출
-      const rows: string[] = []
-      const rowMatches = tableHtml.matchAll(/<tr[^>]*>[\s\S]*?<\/tr>/g)
-      for (const m of rowMatches) {
-        rows.push(m[0])
-      }
+      // 행(tr) 추출 - Array.from으로 iterator → 배열 변환 (TS downlevelIteration 회피)
+      const rowMatches = Array.from(tableHtml.matchAll(/<tr[^>]*>[\s\S]*?<\/tr>/g))
+      const rows: string[] = rowMatches.map((m) => m[0])
 
       // 행별로 셀(td/th) 텍스트 추출
       const parsedRows = rows.map((row, i) => {
-        const cells: string[] = []
-        const cellMatches = row.matchAll(/<(td|th)[^>]*>([\s\S]*?)<\/\1>/g)
-        for (const c of cellMatches) {
+        const cellMatches = Array.from(row.matchAll(/<(td|th)[^>]*>([\s\S]*?)<\/\1>/g))
+        const cells: string[] = cellMatches.map((c) => {
           // 태그 제거 + 공백 정리
-          const text = c[2]
+          return c[2]
             .replace(/<[^>]+>/g, ' ')
             .replace(/&nbsp;/g, ' ')
             .replace(/&amp;/g, '&')
@@ -78,8 +74,7 @@ export async function GET(request: Request) {
             .replace(/&gt;/g, '>')
             .replace(/\s+/g, ' ')
             .trim()
-          cells.push(text)
-        }
+        })
         return { rowIndex: i, cellCount: cells.length, cells }
       })
 
