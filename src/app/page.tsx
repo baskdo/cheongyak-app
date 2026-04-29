@@ -22,6 +22,10 @@ type ApartmentItem = {
   totalUnits: string
   rceptBgnde: string
   rceptEndde: string
+  spsplyRceptBgnde?: string
+  spsplyRceptEndde?: string
+  rank1RceptBgnde?: string
+  rank1RceptEndde?: string
   przwnerPresnatnDe: string
   pblancDe: string
   status: '접수예정' | '접수중' | '접수마감'
@@ -105,6 +109,67 @@ function formatDate(dateStr: string): string {
   const date = new Date(y, m - 1, d)
   const days = ['일', '월', '화', '수', '목', '금', '토']
   return `${m}월 ${d}일(${days[date.getDay()]})`
+}
+
+// 'YYYY-MM-DD' 또는 'YYYYMMDD'를 Date(00:00)로 변환. 실패 시 null
+function parseDateOnly(dateStr: string): Date | null {
+  if (!dateStr) return null
+  const s = dateStr.replace(/-/g, '')
+  if (s.length !== 8) return null
+  const y = parseInt(s.slice(0, 4))
+  const m = parseInt(s.slice(4, 6))
+  const d = parseInt(s.slice(6, 8))
+  const date = new Date(y, m - 1, d)
+  if (isNaN(date.getTime())) return null
+  return date
+}
+
+// 오늘 자정 기준 target까지 남은 일수. 음수면 이미 지남.
+function daysUntil(target: string): number | null {
+  const t = parseDateOnly(target)
+  if (!t) return null
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return Math.round((t.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+// D-day 라벨: 미래는 'D-N일', 오늘은 'D-DAY', 과거는 '마감'
+function formatDday(target: string): string {
+  const d = daysUntil(target)
+  if (d === null) return ''
+  if (d > 0) return `D-${d}일`
+  if (d === 0) return 'D-DAY'
+  return '마감'
+}
+
+// 특별공급 접수일 결정.
+// 1) 서버가 SPSPLY_RCEPT_BGNDE를 줬으면 그대로 사용 (청약홈 공식 필드)
+// 2) 없으면 RCEPT_BGNDE(전체 접수 시작일)로 폴백
+function deriveSpsplyDate(item: { rceptBgnde: string; spsplyRceptBgnde?: string }): string {
+  return item.spsplyRceptBgnde || item.rceptBgnde || ''
+}
+
+// 1순위 접수일 결정.
+// 1) 서버가 GNRL_RNK1_*_RCPTDE를 줬으면 그대로 사용 (청약홈 공식 필드)
+// 2) 없으면 특공일 + 1영업일(주말 건너뜀)로 폴백
+//    한국 청약 관례: 특공이 금요일이면 1순위는 다음 월요일
+function deriveRank1Date(item: {
+  rceptBgnde: string
+  spsplyRceptBgnde?: string
+  rank1RceptBgnde?: string
+}): string {
+  if (item.rank1RceptBgnde) return item.rank1RceptBgnde
+  const baseStr = item.spsplyRceptBgnde || item.rceptBgnde
+  const base = parseDateOnly(baseStr)
+  if (!base) return ''
+  const next = new Date(base.getTime() + 24 * 60 * 60 * 1000)
+  while (next.getDay() === 0 || next.getDay() === 6) {
+    next.setDate(next.getDate() + 1)
+  }
+  const y = next.getFullYear()
+  const m = String(next.getMonth() + 1).padStart(2, '0')
+  const d = String(next.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 function formatPrice(price: string): string {
@@ -292,10 +357,47 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
             </div>
           </div>
         )}
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">접수기간</span>
-          <span className="font-semibold text-blue-600">{formatDate(item.rceptBgnde)} ~ {formatDate(item.rceptEndde)}</span>
-        </div>
+        {(() => {
+          const spsplyDate = deriveSpsplyDate(item)
+          const rank1Date = deriveRank1Date(item)
+          const spsplyDday = formatDday(spsplyDate)
+          const rank1Dday = formatDday(rank1Date)
+
+          // D-day 배지 색상: D-DAY=빨강, 미래=파랑, 마감=회색
+          const ddayClass = (label: string) => {
+            if (!label) return ''
+            if (label === 'D-DAY') return 'bg-red-100 text-red-600'
+            if (label === '마감') return 'bg-gray-100 text-gray-500'
+            return 'bg-blue-100 text-blue-700'
+          }
+
+          return (
+            <>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-500">특별공급 접수</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="font-semibold text-blue-600">{formatDate(spsplyDate)}</span>
+                  {spsplyDday && (
+                    <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${ddayClass(spsplyDday)}`}>
+                      {spsplyDday}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-500">1순위 접수</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="font-semibold text-blue-600">{formatDate(rank1Date)}</span>
+                  {rank1Dday && (
+                    <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${ddayClass(rank1Dday)}`}>
+                      {rank1Dday}
+                    </span>
+                  )}
+                </span>
+              </div>
+            </>
+          )
+        })()}
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">당첨자발표</span>
           <span className="font-semibold text-red-500">{formatDate(item.przwnerPresnatnDe)}</span>

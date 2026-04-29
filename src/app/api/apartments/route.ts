@@ -123,6 +123,23 @@ export async function GET(request: Request) {
     const transformed = apartments.map((item: ApartmentRow) => {
       const no = item['PBLANC_NO'] || String(Math.random())
       const typeInfo = typeMap[no] || { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
+
+      // 청약홈 API 공식 필드 (기술문서 260129 기준)
+      // 특별공급: SPSPLY_RCEPT_BGNDE / SPSPLY_RCEPT_ENDDE
+      // 1순위: 해당지역(CRSPAREA) 우선, 없으면 경기(ETC_GG) → 기타지역(ETC_AREA) 순
+      const spsplyBgnde = item['SPSPLY_RCEPT_BGNDE'] || ''
+      const spsplyEndde = item['SPSPLY_RCEPT_ENDDE'] || ''
+      const rank1Bgnde =
+        item['GNRL_RNK1_CRSPAREA_RCPTDE'] ||
+        item['GNRL_RNK1_ETC_GG_RCPTDE'] ||
+        item['GNRL_RNK1_ETC_AREA_RCPTDE'] ||
+        ''
+      const rank1Endde =
+        item['GNRL_RNK1_CRSPAREA_ENDDE'] ||
+        item['GNRL_RNK1_ETC_GG_ENDDE'] ||
+        item['GNRL_RNK1_ETC_AREA_ENDDE'] ||
+        ''
+
       return {
         id: no,
         name: item['HOUSE_NM'] || '단지명 없음',
@@ -132,6 +149,11 @@ export async function GET(request: Request) {
         totalUnits: item['TOT_SUPLY_HSHLDCO'] || '0',
         rceptBgnde: item['RCEPT_BGNDE'] || '',
         rceptEndde: item['RCEPT_ENDDE'] || '',
+        // 특별공급 / 1순위 접수일 (정확한 공식 필드)
+        spsplyRceptBgnde: spsplyBgnde,
+        spsplyRceptEndde: spsplyEndde,
+        rank1RceptBgnde: rank1Bgnde,
+        rank1RceptEndde: rank1Endde,
         przwnerPresnatnDe: item['PRZWNER_PRESNATN_DE'] || '',
         pblancDe: item['RCRIT_PBLANC_DE'] || '',
         status: getStatus(item['RCEPT_BGNDE'], item['RCEPT_ENDDE']),
@@ -187,6 +209,8 @@ function getDummyData() {
         address: '서울특별시 강서구 방화동 608-97번지 일대',
         region: '서울', type: 'APT', totalUnits: '272',
         rceptBgnde: '2026-03-16', rceptEndde: '2026-03-19',
+        spsplyRceptBgnde: '2026-03-16', spsplyRceptEndde: '2026-03-16',
+        rank1RceptBgnde: '2026-03-17', rank1RceptEndde: '2026-03-17',
         przwnerPresnatnDe: '2026-03-25', pblancDe: '2026-03-06', status: '접수예정',
         hompageUrl: 'https://www.applyhome.co.kr',
         constructor: '삼성물산', moveInDate: '202712',
