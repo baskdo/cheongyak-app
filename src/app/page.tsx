@@ -1233,8 +1233,9 @@ function ThisWeekCard({
         const endDate = notice.rceptEndde ? parseDateOnly(notice.rceptEndde) : null
         const rank1Date = parseDateOnly(deriveRank1Date(notice))
 
-        // 청약홈 단지 상세 페이지 링크
-        const applyhomeUrl = `https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancDetail.do?houseManageNo=${notice.id}&pblancNo=${notice.id}`
+        // 청약홈 경쟁률 팝업 페이지 (selectAPTCompetitionPopup.do)
+        // 모집공고 페이지(selectAPTLttotPblancDetail.do)와 다름 - 직접 경쟁률로 이동
+        const applyhomeUrl = `https://www.applyhome.co.kr/ai/aia/selectAPTCompetitionPopup.do?houseManageNo=${notice.id}&pblancNo=${notice.id}`
 
         // [상황 1] 1순위 시작 전 → 단순 안내
         if (rank1Date && today.getTime() < rank1Date.getTime()) {
