@@ -111,6 +111,19 @@ function formatDate(dateStr: string): string {
   return `${m}월 ${d}일(${days[date.getDay()]})`
 }
 
+// 짧은 형식: 4/27(월)
+function formatShortDate(dateStr: string): string {
+  if (!dateStr) return '-'
+  const s = dateStr.replace(/-/g, '')
+  if (s.length !== 8) return dateStr
+  const y = parseInt(s.slice(0, 4))
+  const m = parseInt(s.slice(4, 6))
+  const d = parseInt(s.slice(6, 8))
+  const date = new Date(y, m - 1, d)
+  const days = ['일', '월', '화', '수', '목', '금', '토']
+  return `${m}/${d}(${days[date.getDay()]})`
+}
+
 // 'YYYY-MM-DD' 또는 'YYYYMMDD'를 Date(00:00)로 변환. 실패 시 null
 function parseDateOnly(dateStr: string): Date | null {
   if (!dateStr) return null
@@ -911,17 +924,26 @@ function ThisWeekCard({
         {/* 왼쪽: 단지 기본정보 */}
         <div className="lg:w-80 flex flex-col gap-3">
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">APT</span>
           <span className={`status-badge ${STATUS_STYLE[notice.status]}`}>
             <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${STATUS_DOT[notice.status]}`} />
             {notice.status}
           </span>
         </div>
-        <span className="text-xs text-gray-400">
-          {formatDate(notice.rceptBgnde)} ~ {formatDate(notice.rceptEndde)}
-        </span>
+        {/* 특공/1순위 일정: 한 줄, 색상 구분 */}
+        <div className="flex items-center gap-1.5 text-[11px] whitespace-nowrap">
+          <span className="font-bold text-emerald-600">특공</span>
+          <span className="font-semibold text-gray-700 tabular-nums">
+            {formatShortDate(deriveSpsplyDate(notice))}
+          </span>
+          <span className="text-gray-300">,</span>
+          <span className="font-bold text-rose-600">1순위</span>
+          <span className="font-semibold text-gray-700 tabular-nums">
+            {formatShortDate(deriveRank1Date(notice))}
+          </span>
+        </div>
       </div>
 
       {/* 단지명 */}
