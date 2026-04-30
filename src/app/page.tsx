@@ -949,9 +949,13 @@ function ThisWeekCard({
   //   + 1순위 접수일이 시작됐음 (= 사이트엔 데이터 있을 가능성)
   //   + notice.id가 유효한 공고번호 형식
   // 캐시: 서버 측 5분 (Vercel revalidate=300)
+  //
+  // 🔧 버그 수정 (2026-04-30):
+  //   1) 의존성을 `notice` → `notice.id`로 변경 (부모가 30초마다 새로고침해도 재실행 방지)
+  //   2) cleanup 시 setApplyhomeLoading(false) 강제 해제 (영원한 로딩 상태 방지)
+  //   3) `applyhomeData || applyhomeLoading` 가드 제거 (의존성으로 충분)
   useEffect(() => {
     if (hasRank1Data) return // 공공 API에 데이터 있으면 폴백 불필요
-    if (applyhomeData || applyhomeLoading) return // 이미 시도했거나 진행 중
 
     const pblancNo = String(notice.id || '').trim()
     if (!/^\d{6,12}$/.test(pblancNo)) return
@@ -968,7 +972,10 @@ function ThisWeekCard({
       try {
         const res = await fetch(`/api/applyhome-competition?pblancNo=${pblancNo}`)
         const data: ApplyhomeCompetitionData = await res.json()
-        if (!cancelled) setApplyhomeData(data)
+        if (!cancelled) {
+          setApplyhomeData(data)
+          setApplyhomeLoading(false)
+        }
       } catch (e) {
         if (!cancelled) {
           setApplyhomeData({
@@ -983,14 +990,18 @@ function ThisWeekCard({
             totalAll: 0,
             error: String(e),
           })
+          setApplyhomeLoading(false)
         }
-      } finally {
-        if (!cancelled) setApplyhomeLoading(false)
       }
     }
     fetchApplyhome()
-    return () => { cancelled = true }
-  }, [hasRank1Data, notice, applyhomeData, applyhomeLoading])
+    return () => {
+      cancelled = true
+      // cleanup 시 로딩 상태 강제 해제 (재실행 시 새 fetch가 막히는 것 방지)
+      setApplyhomeLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRank1Data, notice.id])
 
   const hasApplyhomeData = applyhomeData?.ok && applyhomeData.rank1ByType.length > 0
 
