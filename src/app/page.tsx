@@ -679,12 +679,18 @@ function isThisWeekRecept(rceptBgnde: string, rceptEndde: string): boolean {
   return startDate <= end && endDate >= start
 }
 
+// 🔧 (2026-04-30) LIVE 기능 비활성화 - 30초 인터벌이 응답 누적으로 페이지를 느리게 만드는 문제 해결
+// 영향: (1) 30초 자동 새로고침 중지 (2) 탭 진입 시 강제 fresh 호출 중지 (3) "LIVE - 결과 발표 중" 배지 숨김
+// 청약홈 폴백은 정상 동작 유지 (이건 isLiveTime과 무관하게 카드별로 독립 호출됨)
+// 필요 시 아래 return false를 원래 로직으로 되돌리면 LIVE 기능 복구
 function isLiveTime(): boolean {
-  const now = new Date()
-  const day = now.getDay()
-  if (day === 0 || day === 6) return false
-  const totalMin = now.getHours() * 60 + now.getMinutes()
-  return totalMin >= 19 * 60 + 30 && totalMin <= 21 * 60
+  return false
+  // 원래 로직 (참고용 - 평일 19:30~21:00):
+  // const now = new Date()
+  // const day = now.getDay()
+  // if (day === 0 || day === 6) return false
+  // const totalMin = now.getHours() * 60 + now.getMinutes()
+  // return totalMin >= 19 * 60 + 30 && totalMin <= 21 * 60
 }
 
 // ===== 접수현황 탭 기간 필터 =====
