@@ -83,6 +83,29 @@ type CompetitionItem = {
   houseTypes: HouseTypeRate[]
 }
 
+// 청약홈 사이트 직접 조회 결과 (공공 API 폴백용)
+type ApplyhomeRank1Type = {
+  type: string
+  typeLabel: string
+  suply: number
+  local: number
+  etc: number
+  total: number
+  rate: number
+}
+type ApplyhomeCompetitionData = {
+  ok: boolean
+  pblancNo: string
+  source: 'applyhome'
+  fetchedAt: string
+  rank1ByType: ApplyhomeRank1Type[]
+  totalSuply: number
+  totalLocal: number
+  totalEtc: number
+  totalAll: number
+  error?: string
+}
+
 // ===================== CONSTANTS =====================
 const REGIONS = ['전체', '서울', '경기', '인천', '부산', '대구', '광주', '대전', '울산', '세종', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
 const STATUSES = ['전체', '접수예정', '접수중']
@@ -758,6 +781,10 @@ function ThisWeekCard({
   const hasSpsplyData = specialSupply && specialSupply.houseTypes.length > 0
   const spsplyResultName = specialSupply?.subscrptResultNm || ''
 
+  // === 청약홈 직접 조회 폴백 (공공 API에 1순위 데이터 없을 때만 자동 호출) ===
+  const [applyhomeData, setApplyhomeData] = useState<ApplyhomeCompetitionData | null>(null)
+  const [applyhomeLoading, setApplyhomeLoading] = useState(false)
+
   // 캡처용 숨겨진 영역 ref
   const captureSpsplyRef = useRef<HTMLDivElement>(null)
   const captureRank1Ref = useRef<HTMLDivElement>(null)
@@ -916,6 +943,56 @@ function ThisWeekCard({
   const rank1AvgRate = rank1TotalSuply > 0
     ? Math.round((rank1GrandTotal / rank1TotalSuply) * 100) / 100
     : 0
+
+  // === 청약홈 직접 조회 자동 폴백 ===
+  // 조건: 공공 API에 1순위 데이터 없음(hasRank1Data=false)
+  //   + 1순위 접수일이 시작됐음 (= 사이트엔 데이터 있을 가능성)
+  //   + notice.id가 유효한 공고번호 형식
+  // 캐시: 서버 측 5분 (Vercel revalidate=300)
+  useEffect(() => {
+    if (hasRank1Data) return // 공공 API에 데이터 있으면 폴백 불필요
+    if (applyhomeData || applyhomeLoading) return // 이미 시도했거나 진행 중
+
+    const pblancNo = String(notice.id || '').trim()
+    if (!/^\d{6,12}$/.test(pblancNo)) return
+
+    // 1순위 시작일 도래 여부 확인 (시작 전이면 청약홈도 비어있음)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const rank1Date = parseDateOnly(deriveRank1Date(notice))
+    if (rank1Date && today.getTime() < rank1Date.getTime()) return
+
+    let cancelled = false
+    const fetchApplyhome = async () => {
+      setApplyhomeLoading(true)
+      try {
+        const res = await fetch(`/api/applyhome-competition?pblancNo=${pblancNo}`)
+        const data: ApplyhomeCompetitionData = await res.json()
+        if (!cancelled) setApplyhomeData(data)
+      } catch (e) {
+        if (!cancelled) {
+          setApplyhomeData({
+            ok: false,
+            pblancNo,
+            source: 'applyhome',
+            fetchedAt: new Date().toISOString(),
+            rank1ByType: [],
+            totalSuply: 0,
+            totalLocal: 0,
+            totalEtc: 0,
+            totalAll: 0,
+            error: String(e),
+          })
+        }
+      } finally {
+        if (!cancelled) setApplyhomeLoading(false)
+      }
+    }
+    fetchApplyhome()
+    return () => { cancelled = true }
+  }, [hasRank1Data, notice, applyhomeData, applyhomeLoading])
+
+  const hasApplyhomeData = applyhomeData?.ok && applyhomeData.rank1ByType.length > 0
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover">
@@ -1225,8 +1302,91 @@ function ThisWeekCard({
         </div>
       )}
 
+      {/* ===== 청약홈 직접 조회 결과 (공공 API 폴백) ===== */}
+      {/* 공공 API에 1순위 데이터가 없을 때 자동 호출됨. 5분 캐시. */}
+      {!hasRank1Data && applyhomeLoading && (
+        <div className="mt-4 bg-purple-50 rounded-xl p-3 text-center">
+          <p className="text-sm font-semibold text-purple-700">⏳ 청약홈에서 가져오는 중...</p>
+          <p className="text-xs text-purple-600 mt-1">잠시만 기다려주세요</p>
+        </div>
+      )}
+
+      {!hasRank1Data && hasApplyhomeData && applyhomeData && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-purple-700">
+              📌 일반공급 1순위 청약접수 현황 <span className="text-[10px] text-purple-500">(청약홈 직접 조회)</span>
+            </p>
+            <span className="text-[10px] text-gray-400">
+              수집: {new Date(applyhomeData.fetchedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px] sm:text-[11px] border-collapse">
+              <thead>
+                <tr className="bg-purple-50 text-gray-700">
+                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">타입</th>
+                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">공급<br/>세대</th>
+                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
+                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
+                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">소계</th>
+                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
+                </tr>
+              </thead>
+              <tbody>
+                {applyhomeData.rank1ByType.map((r) => (
+                  <tr key={r.type} className="hover:bg-gray-50">
+                    <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-purple-700">
+                      {r.typeLabel}
+                    </td>
+                    <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">
+                      {r.suply.toLocaleString()}
+                    </td>
+                    <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">
+                      {r.local.toLocaleString()}
+                    </td>
+                    <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">
+                      {r.etc.toLocaleString()}
+                    </td>
+                    <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                      {r.total.toLocaleString()}
+                    </td>
+                    <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${r.rate >= 1 ? 'text-purple-700' : 'text-gray-500'}`}>
+                      {r.rate > 0 ? `${r.rate.toFixed(2)} 대 1` : '-'}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="bg-amber-50 border-t-2 border-amber-300">
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">계</td>
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                    {applyhomeData.totalSuply.toLocaleString()}
+                  </td>
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                    {applyhomeData.totalLocal.toLocaleString()}
+                  </td>
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                    {applyhomeData.totalEtc.toLocaleString()}
+                  </td>
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">
+                    {applyhomeData.totalAll.toLocaleString()}
+                  </td>
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center text-amber-800 font-bold">
+                    {applyhomeData.totalSuply > 0
+                      ? `${(applyhomeData.totalAll / applyhomeData.totalSuply).toFixed(2)} 대 1`
+                      : '-'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+            ※ 출처: 청약홈 (applyhome.co.kr) / 1순위 해당+기타지역 합계 기준
+          </p>
+        </div>
+      )}
+
       {/* 1순위 데이터 안내 - 청약홈 API 데이터 누락 가능성을 정직하게 표시 */}
-      {!hasRank1Data && (() => {
+      {!hasRank1Data && !hasApplyhomeData && !applyhomeLoading && (() => {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
 
