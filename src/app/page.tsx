@@ -693,6 +693,23 @@ function isLiveTime(): boolean {
   // return totalMin >= 19 * 60 + 30 && totalMin <= 21 * 60
 }
 
+// 🏛️ (2026-04-30) LH/SH 등 공공기관 청약 사이트로 연결되는 단지 식별
+// - hompageUrl이 공공기관 청약 사이트면 청약홈 1순위 경쟁률 미공개 가능성 큼
+// - 폴백 호출 자체를 안 하고 "사업주체 미제공" 표시
+// - 단, 시행자가 민간인 공공분양은 청약홈에 데이터 있을 수도 있음
+//   → 이 케이스는 URL 필터 외에 값 필터(totalAll > 0)로 별도 처리
+function isPublicHousing(hompageUrl: string | undefined | null): boolean {
+  const url = (hompageUrl || '').toLowerCase()
+  if (!url) return false
+  return (
+    url.includes('apply.lh.or.kr') ||  // LH 청약센터
+    url.includes('apply.sh.co.kr') ||  // SH 청약센터
+    url.includes('i-sh.co.kr') ||      // 인천도시공사
+    url.includes('gico.or.kr') ||      // 경기주택도시공사
+    url.includes('mgcorp.co.kr')       // 대구도시공사
+  )
+}
+
 // ===== 접수현황 탭 기간 필터 =====
 type PeriodKey = 'thisweek' | '3m' | '12m' | '2025' | '2024' | '2023' | '2022' | '2021'
 
@@ -962,6 +979,7 @@ function ThisWeekCard({
   //   3) `applyhomeData || applyhomeLoading` 가드 제거 (의존성으로 충분)
   useEffect(() => {
     if (hasRank1Data) return // 공공 API에 데이터 있으면 폴백 불필요
+    if (isPublicHousing(notice.hompageUrl)) return // LH/SH 단지는 청약홈에 1순위 미공개 가능성
 
     const pblancNo = String(notice.id || '').trim()
     if (!/^\d{6,12}$/.test(pblancNo)) return
@@ -1009,7 +1027,17 @@ function ThisWeekCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasRank1Data, notice.id])
 
-  const hasApplyhomeData = applyhomeData?.ok && applyhomeData.rank1ByType.length > 0
+  // 폴백 응답이 "의미 있는" 데이터인지 판단:
+  //   - ok 응답
+  //   - rank1ByType 배열에 항목이 있고
+  //   - totalAll(접수 합계) > 0
+  // 값이 모두 0이면 LH 단지나 데이터 미공개 단지이므로 표를 그리지 않음
+  const hasApplyhomeData = applyhomeData?.ok
+    && applyhomeData.rank1ByType.length > 0
+    && applyhomeData.totalAll > 0
+
+  // 단지 자체가 공공기관 청약(LH/SH 등) 사이트로 연결되는지
+  const isPublicHousingNotice = isPublicHousing(notice.hompageUrl)
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover">
@@ -1071,13 +1099,22 @@ function ThisWeekCard({
             )
           }
           return (
-            <div className="bg-blue-50 rounded-xl p-3 text-center">
-              <p className="text-sm font-semibold text-blue-700">⏳ 데이터 대기 중</p>
-              <p className="text-xs text-blue-600 mt-1">접수 후 결과 동기화</p>
-              {notice.przwnerPresnatnDe && (
-                <p className="text-xs text-gray-500 mt-2">
-                  예정 발표일: {formatDate(notice.przwnerPresnatnDe)} (저녁 7:30)
-                </p>
+            <div className={isPublicHousingNotice ? "bg-gray-50 rounded-xl p-3 text-center" : "bg-blue-50 rounded-xl p-3 text-center"}>
+              {isPublicHousingNotice ? (
+                <>
+                  <p className="text-sm font-semibold text-gray-700">사업주체 미제공</p>
+                  <p className="text-xs text-gray-500 mt-1">청약홈에 결과 미공개</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-blue-700">⏳ 데이터 대기 중</p>
+                  <p className="text-xs text-blue-600 mt-1">접수 후 결과 동기화</p>
+                  {notice.przwnerPresnatnDe && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      예정 발표일: {formatDate(notice.przwnerPresnatnDe)} (저녁 7:30)
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )
@@ -1088,27 +1125,31 @@ function ThisWeekCard({
               <p className="text-sm font-semibold text-emerald-700">✅ 특별공급 접수 결과</p>
               <p className="text-xs text-emerald-600 mt-1">{spsplyResultName || '데이터 수신됨'}</p>
             </div>
-            {/* 보고용 스샷 버튼 */}
-            <div className="grid grid-cols-2 gap-2 mt-3">
-              <button
-                onClick={() => downloadCapture('spsply')}
-                disabled={capturing !== null}
-                className="flex items-center justify-center gap-1 bg-white border border-emerald-200 text-emerald-700 rounded-lg py-2 text-xs font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {capturing === 'spsply' ? '⏳ 생성 중...' : '📷 특공 스샷'}
-              </button>
-              <button
-                onClick={() => downloadCapture('rank1')}
-                disabled={capturing !== null || !hasRank1Data}
-                className="flex items-center justify-center gap-1 bg-white border border-rose-200 text-rose-700 rounded-lg py-2 text-xs font-semibold hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={!hasRank1Data ? '1순위 데이터 없음' : ''}
-              >
-                {capturing === 'rank1' ? '⏳ 생성 중...' : '📷 1순위 스샷'}
-              </button>
-            </div>
-            <p className="text-[10px] text-gray-500 text-center mt-2">
-              💡 버튼을 누르면 카톡 등으로 바로 공유할 수 있어요
-            </p>
+            {/* 보고용 스샷 버튼 - LH/SH 등 공공기관 청약 단지는 숨김 (특공/1순위 미공개) */}
+            {!isPublicHousingNotice && (
+              <>
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <button
+                    onClick={() => downloadCapture('spsply')}
+                    disabled={capturing !== null}
+                    className="flex items-center justify-center gap-1 bg-white border border-emerald-200 text-emerald-700 rounded-lg py-2 text-xs font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {capturing === 'spsply' ? '⏳ 생성 중...' : '📷 특공 스샷'}
+                  </button>
+                  <button
+                    onClick={() => downloadCapture('rank1')}
+                    disabled={capturing !== null || !hasRank1Data}
+                    className="flex items-center justify-center gap-1 bg-white border border-rose-200 text-rose-700 rounded-lg py-2 text-xs font-semibold hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={!hasRank1Data ? '1순위 데이터 없음' : ''}
+                  >
+                    {capturing === 'rank1' ? '⏳ 생성 중...' : '📷 1순위 스샷'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 text-center mt-2">
+                  💡 버튼을 누르면 카톡 등으로 바로 공유할 수 있어요
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1321,14 +1362,15 @@ function ThisWeekCard({
 
       {/* ===== 청약홈 직접 조회 결과 (공공 API 폴백) ===== */}
       {/* 공공 API에 1순위 데이터가 없을 때 자동 호출됨. 5분 캐시. */}
-      {!hasRank1Data && applyhomeLoading && (
+      {/* 단, 공공기관 청약(LH/SH) 단지는 폴백 호출 자체를 안 하고 표시 영역도 모두 숨김 */}
+      {!hasRank1Data && !isPublicHousingNotice && applyhomeLoading && (
         <div className="mt-4 bg-purple-50 rounded-xl p-3 text-center">
           <p className="text-sm font-semibold text-purple-700">⏳ 청약홈에서 가져오는 중...</p>
           <p className="text-xs text-purple-600 mt-1">잠시만 기다려주세요</p>
         </div>
       )}
 
-      {!hasRank1Data && hasApplyhomeData && applyhomeData && (
+      {!hasRank1Data && !isPublicHousingNotice && hasApplyhomeData && applyhomeData && (
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold text-purple-700">
@@ -1403,7 +1445,8 @@ function ThisWeekCard({
       )}
 
       {/* 1순위 데이터 안내 - 청약홈 API 데이터 누락 가능성을 정직하게 표시 */}
-      {!hasRank1Data && !hasApplyhomeData && !applyhomeLoading && (() => {
+      {/* 공공기관 청약(LH/SH) 단지는 1순위 미공개이므로 이 안내도 표시 안 함 */}
+      {!hasRank1Data && !isPublicHousingNotice && !hasApplyhomeData && !applyhomeLoading && (() => {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
 
