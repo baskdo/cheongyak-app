@@ -1091,6 +1091,16 @@ function ThisWeekCard({
           const isPast = endDate && endDate < today
 
           if (isPast) {
+            // LH/SH 등 공공기관 청약 단지: "사업주체 미제공"으로 통일
+            if (isPublicHousingNotice) {
+              return (
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-sm font-semibold text-gray-700">사업주체 미제공</p>
+                  <p className="text-xs text-gray-500 mt-1">청약홈에 결과 미공개</p>
+                </div>
+              )
+            }
+            // 일반 단지: 청약홈 API 보존 범위 벗어남 가능성 안내
             return (
               <div className="bg-gray-50 rounded-xl p-3 text-center">
                 <p className="text-sm font-semibold text-gray-600">ℹ️ 특별공급 데이터 미제공</p>
