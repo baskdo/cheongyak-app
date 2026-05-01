@@ -569,11 +569,14 @@ function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; speci
       </div>
 
       <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 space-y-1.5 leading-relaxed">
-        <div>
-          특공 (공급 {specialTotalSupply.toLocaleString()}){' '}
-          <span className="font-bold text-blue-600">{specialTotalReq.toLocaleString()}건</span>
-          <span className="ml-1">접수</span>
-        </div>
+        {/* 특공이 없는 단지(공급 0)는 줄 자체를 숨김 */}
+        {specialTotalSupply > 0 && (
+          <div>
+            특공 (공급 {specialTotalSupply.toLocaleString()}){' '}
+            <span className="font-bold text-blue-600">{specialTotalReq.toLocaleString()}건</span>
+            <span className="ml-1">접수</span>
+          </div>
+        )}
 
         <div>
           1순위 (공급 {rank1Supply.toLocaleString()}){' '}
