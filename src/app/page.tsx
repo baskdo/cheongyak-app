@@ -290,7 +290,9 @@ function getYearRange(year: number) {
 }
 
 function getFixedYearButtons() {
-  return [2021, 2022, 2023, 2024, 2025, 2026]
+  // 최신 연도부터 표시 (2026 → 2021)
+  // [1개월] [2026년] [2025년] [2024년] [2023년] [2022년] [2021년] 순으로 보여줌
+  return [2026, 2025, 2024, 2023, 2022, 2021]
 }
 
 function formatYm(ym: string) {
@@ -708,12 +710,12 @@ function isPublicHousing(hompageUrl: string | undefined | null): boolean {
 }
 
 // ===== 접수현황 탭 기간 필터 =====
-type PeriodKey = 'thisweek' | '3m' | '12m' | '2025' | '2024' | '2023' | '2022' | '2021'
+type PeriodKey = 'thisweek' | '3m' | '2026' | '2025' | '2024' | '2023' | '2022' | '2021'
 
 const PERIOD_BUTTONS: Array<{ key: PeriodKey; label: string }> = [
   { key: 'thisweek', label: '이번 주' },
   { key: '3m', label: '최근 3개월' },
-  { key: '12m', label: '최근 12개월' },
+  { key: '2026', label: '2026년' },
   { key: '2025', label: '2025년' },
   { key: '2024', label: '2024년' },
   { key: '2023', label: '2023년' },
@@ -743,14 +745,7 @@ function getPeriodRange(key: string): { start: Date; end: Date; label: string } 
     return { start, end: now, label: '최근 3개월' }
   }
 
-  if (key === '12m') {
-    const start = new Date(now)
-    start.setMonth(start.getMonth() - 12)
-    start.setHours(0, 0, 0, 0)
-    return { start, end: now, label: '최근 12개월' }
-  }
-
-  // 연도별 (2021~2025)
+  // 연도별 (2021~2026)
   const year = parseInt(key, 10)
   if (!isNaN(year) && year >= 2000) {
     const start = new Date(year, 0, 1, 0, 0, 0, 0)
@@ -1804,7 +1799,7 @@ export default function Home() {
   const [thisWeekRegion, setThisWeekRegion] = useState('전체')
   const [thisWeekKeyword, setThisWeekKeyword] = useState('')
   const [thisWeekSearchInput, setThisWeekSearchInput] = useState('')
-  const [thisWeekPeriod, setThisWeekPeriod] = useState<string>('thisweek') // 'thisweek' | '3m' | '12m' | '2025' | '2024' | ...
+  const [thisWeekPeriod, setThisWeekPeriod] = useState<string>('thisweek') // 'thisweek' | '3m' | '2026' | '2025' | ...
 
   const yearButtons = getFixedYearButtons()
 
@@ -1949,8 +1944,8 @@ export default function Home() {
     const isThisWeekSelected = thisWeekPeriod === 'thisweek'
 
     // 기간에 따른 청약공고 데이터 로드 분기
-    const needsFullData = thisWeekPeriod === '12m'
-      || /^\d{4}$/.test(thisWeekPeriod) // '2021'~'2025' 등 연도 키
+    // (12m은 더 이상 없음, 연도 키만 풀 데이터 필요)
+    const needsFullData = /^\d{4}$/.test(thisWeekPeriod) // '2021'~'2026' 등 연도 키
 
     // LIVE 시간대(평일 19:30~21:00) + 이번 주 선택 시에는 캐시 무시하고 강제 fresh
     const isLiveAndThisWeek = isThisWeekSelected && isLiveTime()
@@ -2035,7 +2030,7 @@ export default function Home() {
               } else {
                 // 접수현황 조회 탭
                 const isThisWeekSelected = thisWeekPeriod === 'thisweek'
-                const needsFullData = thisWeekPeriod === '12m' || /^\d{4}$/.test(thisWeekPeriod)
+                const needsFullData = /^\d{4}$/.test(thisWeekPeriod) // 연도 키만 풀 데이터
                 if (needsFullData) {
                   fetchNotice(true, items.length > 0)
                 } else {
