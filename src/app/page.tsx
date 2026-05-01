@@ -263,24 +263,21 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-function getRecent1YearRange(baseDate = new Date()) {
+// 최근 1개월 기간 (지난달 + 이번달 = 약 30~60일치)
+// 데이터 부담을 줄여 첫 화면 로딩을 가볍게 만들기 위함 (이전: 최근 1년 = recent1y)
+// 예: 오늘이 2026-05-01이면 from=2026-04, to=2026-05
+function getRecent1MonthRange(baseDate = new Date()) {
   const year = baseDate.getFullYear()
   const month = baseDate.getMonth() + 1
 
-  let fromYear = year
-  let fromMonth = month + 1
-
-  if (fromMonth === 13) {
-    fromYear += 1
-    fromMonth = 1
-  }
-
-  fromYear -= 1
+  // 지난달 계산 (1월이면 작년 12월)
+  const fromYear = month === 1 ? year - 1 : year
+  const fromMonth = month === 1 ? 12 : month - 1
 
   return {
     from: `${fromYear}-${pad2(fromMonth)}`,
     to: `${year}-${pad2(month)}`,
-    key: 'recent1y',
+    key: 'recent1m',
   }
 }
 
@@ -1799,7 +1796,7 @@ export default function Home() {
   const [searchInput, setSearchInput] = useState('')
   const [cmpetRegion, setCmpetRegion] = useState('전체')
 
-  const [periodKey, setPeriodKey] = useState('recent1y')
+  const [periodKey, setPeriodKey] = useState('recent1m')
   const [yearMonthFrom, setYearMonthFrom] = useState('')
   const [yearMonthTo, setYearMonthTo] = useState('')
 
@@ -1917,7 +1914,7 @@ export default function Home() {
   }, [fetchNoticeRecent])
 
   useEffect(() => {
-    const range = getRecent1YearRange(new Date())
+    const range = getRecent1MonthRange(new Date())
     setPeriodKey(range.key)
     setYearMonthFrom(range.from)
     setYearMonthTo(range.to)
@@ -1963,14 +1960,14 @@ export default function Home() {
         // LIVE 시간대: 캐시 무시, 강제 fresh, 백그라운드
         fetchNoticeRecent(true, noticeItems.length > 0, false)
         fetchSpecialSupply(true, spsplyItems.length > 0, false)
-        const range = getRecent1YearRange(new Date())
+        const range = getRecent1MonthRange(new Date())
         // fetchCompetition: background, skipIfFresh=false, fresh=true
         fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0, false, true)
       } else {
         // 일반 시간대: 5분 이내 캐시면 스킵
         fetchNoticeRecent(false, noticeItems.length > 0, true)
         fetchSpecialSupply(false, spsplyItems.length > 0, true)
-        const range = getRecent1YearRange(new Date())
+        const range = getRecent1MonthRange(new Date())
         fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0, true)
       }
     } else {
@@ -1996,7 +1993,7 @@ export default function Home() {
       // LIVE 갱신은 항상 fresh + 백그라운드 (서버/클라이언트 캐시 모두 무시)
       fetchNoticeRecent(true, true)
       fetchSpecialSupply(true, true)
-      const range = getRecent1YearRange(new Date())
+      const range = getRecent1MonthRange(new Date())
       // fetchCompetition: background=true, skipIfFresh=false, fresh=true
       fetchCompetition('', '전체', range.from, range.to, true, false, true)
     }, 30000)
@@ -2046,7 +2043,7 @@ export default function Home() {
                 }
                 fetchSpecialSupply(true, spsplyItems.length > 0)
                 if (isThisWeekSelected) {
-                  const range = getRecent1YearRange(new Date())
+                  const range = getRecent1MonthRange(new Date())
                   fetchCompetition('', '전체', range.from, range.to, cmpetItems.length > 0)
                 } else {
                   const ym = getPeriodYmRange(thisWeekPeriod)
@@ -2187,15 +2184,15 @@ export default function Home() {
                 <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   <button
                     onClick={() => {
-                      const range = getRecent1YearRange(new Date())
+                      const range = getRecent1MonthRange(new Date())
                       setPeriodKey(range.key)
                       setYearMonthFrom(range.from)
                       setYearMonthTo(range.to)
                       fetchCompetition(keyword, cmpetRegion, range.from, range.to)
                     }}
-                    className={`filter-btn text-sm px-3 py-1.5 ${periodKey === 'recent1y' ? 'filter-btn-active' : 'filter-btn-inactive'}`}
+                    className={`filter-btn text-sm px-3 py-1.5 ${periodKey === 'recent1m' ? 'filter-btn-active' : 'filter-btn-inactive'}`}
                   >
-                    최근 1년
+                    1개월
                   </button>
 
                   {yearButtons.map(year => {
