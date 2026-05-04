@@ -834,6 +834,7 @@ function ThisWeekCard({
   const captureSpsplyRef = useRef<HTMLDivElement>(null)
   const captureRank1Ref = useRef<HTMLDivElement>(null)
   const [capturing, setCapturing] = useState<'spsply' | 'rank1' | null>(null)
+  const [downloadingExcel, setDownloadingExcel] = useState(false)
 
   // 캡처 → 공유(Web Share API 우선) 또는 다운로드 fallback
   const downloadCapture = async (type: 'spsply' | 'rank1') => {
@@ -1075,6 +1076,108 @@ function ThisWeekCard({
     ? Math.round((combinedGrandTotal / rank1TotalSuply) * 100) / 100
     : 0
 
+  // === 보고서 엑셀 다운로드 ===
+  // 청약접수결과 보고서 양식의 .xlsx를 서버에서 생성해 받음
+  const downloadReportExcel = async () => {
+    if (!hasRank1Data) {
+      alert('1순위 데이터가 아직 없어 보고서를 생성할 수 없습니다.')
+      return
+    }
+
+    setDownloadingExcel(true)
+    try {
+      // 페이로드 구성 — 주택형별 행 데이터
+      // 특공 배정/청약은 specialSupply에서 주택형별 매칭
+      const rows = rank1ByType.map((r1) => {
+        // 특공 매칭 (주택형 원본값으로 매칭)
+        let spsplyAssigned = 0
+        let spsplyApplied = 0
+        if (specialSupply && specialSupply.houseTypes.length > 0) {
+          const ht = specialSupply.houseTypes.find((h) => h.type.trim() === r1.type.trim())
+          if (ht) {
+            spsplyAssigned = ht.spsplyHshldco
+            // 카테고리별 접수 건수 합산 (해당+기타경기+기타지역 / 결정수)
+            for (const cat of ht.categories) {
+              if (cat.areaData) {
+                spsplyApplied += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+              } else if (cat.instData) {
+                spsplyApplied += cat.instData.결정
+              }
+            }
+          }
+        }
+
+        // 2순위 접수 건수
+        const r2 = rank2ByType.find((x) => x.type === r1.type)
+        const rank2Applied = r2?.hasData ? r2.total : 0
+
+        return {
+          type: r1.type,
+          typeLabel: r1.typeLabel,
+          suply: r1.suply,
+          spsplyAssigned,
+          spsplyApplied,
+          rank1Applied: r1.total,
+          rank2Applied,
+        }
+      })
+
+      // 보고서 작성일 (오늘)
+      const today = new Date()
+      const yyyy = today.getFullYear()
+      const mm = String(today.getMonth() + 1).padStart(2, '0')
+      const dd = String(today.getDate()).padStart(2, '0')
+      const reportDate = `${yyyy}-${mm}-${dd}`
+
+      const payload = {
+        houseName: notice.name,
+        reportDate,
+        rows,
+      }
+
+      // POST 요청 → .xlsx 바이너리 응답
+      const res = await fetch('/api/report-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        throw new Error(`서버 응답 실패: ${res.status}`)
+      }
+
+      // Content-Disposition에서 파일명 파싱 (UTF-8 인코딩 처리)
+      let filename = `${notice.name.replace(/[\\/:*?"<>|]/g, '_')}_청약접수결과_${yyyy}${mm}${dd}.xlsx`
+      const cd = res.headers.get('Content-Disposition')
+      if (cd) {
+        const match = cd.match(/filename\*=UTF-8''([^;]+)/)
+        if (match) {
+          try {
+            filename = decodeURIComponent(match[1])
+          } catch {
+            // 파싱 실패 시 기본 파일명 사용
+          }
+        }
+      }
+
+      // Blob → 다운로드
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('엑셀 다운로드 실패:', e)
+      alert('엑셀 생성에 실패했습니다. 잠시 후 다시 시도해주세요.')
+    } finally {
+      setDownloadingExcel(false)
+    }
+  }
+
   // === 청약홈 직접 조회 자동 폴백 ===
   // 조건: 공공 API에 1순위 데이터 없음(hasRank1Data=false)
   //   + 1순위 접수일이 시작됐음 (= 사이트엔 데이터 있을 가능성)
@@ -1246,25 +1349,33 @@ function ThisWeekCard({
             {/* 보고용 스샷 버튼 - LH/SH 등 공공기관 청약 단지는 숨김 (특공/1순위 미공개) */}
             {!isPublicHousingNotice && (
               <>
-                <div className="grid grid-cols-2 gap-2 mt-3">
+                <div className="grid grid-cols-3 gap-2 mt-3">
                   <button
                     onClick={() => downloadCapture('spsply')}
-                    disabled={capturing !== null}
+                    disabled={capturing !== null || downloadingExcel}
                     className="flex items-center justify-center gap-1 bg-white border border-emerald-200 text-emerald-700 rounded-lg py-2 text-xs font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {capturing === 'spsply' ? '⏳ 생성 중...' : '📷 특공 스샷'}
                   </button>
                   <button
                     onClick={() => downloadCapture('rank1')}
-                    disabled={capturing !== null || !hasRank1Data}
+                    disabled={capturing !== null || downloadingExcel || !hasRank1Data}
                     className="flex items-center justify-center gap-1 bg-white border border-rose-200 text-rose-700 rounded-lg py-2 text-xs font-semibold hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title={!hasRank1Data ? '1순위 데이터 없음' : ''}
                   >
                     {capturing === 'rank1' ? '⏳ 생성 중...' : '📷 1·2순위 스샷'}
                   </button>
+                  <button
+                    onClick={() => downloadReportExcel()}
+                    disabled={capturing !== null || downloadingExcel || !hasRank1Data}
+                    className="flex items-center justify-center gap-1 bg-white border border-blue-200 text-blue-700 rounded-lg py-2 text-xs font-semibold hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={!hasRank1Data ? '1순위 데이터 없음' : '보고서 양식 엑셀 다운로드'}
+                  >
+                    {downloadingExcel ? '⏳ 생성 중...' : '📊 보고서 엑셀'}
+                  </button>
                 </div>
                 <p className="text-[10px] text-gray-500 text-center mt-2">
-                  💡 버튼을 누르면 카톡 등으로 바로 공유할 수 있어요
+                  💡 스샷은 카톡 공유용 / 엑셀은 보고서 양식 다운로드
                 </p>
               </>
             )}
