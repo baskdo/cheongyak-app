@@ -980,6 +980,77 @@ function ThisWeekCard({
 
   const hasRank1Data = rank1ByType.length > 0
 
+  // 2순위 데이터 가공: 1순위와 동일한 구조, 단 hasData 플래그로 1순위 마감 여부 표시
+  const rank2ByType = (() => {
+    if (!competition || !hasRank1Data) return [] as Array<{
+      type: string
+      typeLabel: string
+      hasData: boolean
+      local: number
+      etc: number
+      total: number
+      rate: number
+      suply: number  // 1순위 공급세대 (참고용)
+    }>
+    const rank2 = competition.houseTypes.filter((h) => h.rank === '2')
+
+    // 주택형별 2순위 집계
+    const map = new Map<string, { local: number; etc: number }>()
+    rank2.forEach((h) => {
+      const key = (h.type || '').trim()
+      if (!key) return
+      const reqCnt = parseInt(h.reqCnt || '0', 10)
+      const isLocal = h.reside === '해당지역'
+      if (!map.has(key)) map.set(key, { local: 0, etc: 0 })
+      const e = map.get(key)!
+      if (isLocal) e.local += reqCnt
+      else e.etc += reqCnt
+    })
+
+    // 1순위 주택형 순서를 따라가며 2순위 행 생성 (없으면 hasData=false)
+    return rank1ByType.map((r1) => {
+      const r2 = map.get(r1.type)
+      if (r2 && (r2.local > 0 || r2.etc > 0)) {
+        const total = r2.local + r2.etc
+        const rate = r1.suply > 0 ? Math.round((total / r1.suply) * 100) / 100 : 0
+        return {
+          type: r1.type,
+          typeLabel: r1.typeLabel,
+          hasData: true,
+          local: r2.local,
+          etc: r2.etc,
+          total,
+          rate,
+          suply: r1.suply,
+        }
+      }
+      return {
+        type: r1.type,
+        typeLabel: r1.typeLabel,
+        hasData: false,
+        local: 0,
+        etc: 0,
+        total: 0,
+        rate: 0,
+        suply: r1.suply,
+      }
+    })
+  })()
+
+  // 1+2순위 총계 (분모는 1순위 공급세대 — 청약홈 방식)
+  const combinedByType = rank1ByType.map((r1) => {
+    const r2 = rank2ByType.find((x) => x.type === r1.type)
+    const r2Total = r2?.hasData ? r2.total : 0
+    const totalReq = r1.total + r2Total
+    return {
+      type: r1.type,
+      typeLabel: r1.typeLabel,
+      suply: r1.suply,
+      totalReq,
+      combinedRate: r1.suply > 0 ? Math.round((totalReq / r1.suply) * 100) / 100 : 0,
+    }
+  })
+
   // 1순위 합계 행
   const rank1TotalSuply = rank1ByType.reduce((s, r) => s + r.suply, 0)
   const rank1TotalLocal = rank1ByType.reduce((s, r) => s + r.local, 0)
@@ -987,6 +1058,21 @@ function ThisWeekCard({
   const rank1GrandTotal = rank1TotalLocal + rank1TotalEtc
   const rank1AvgRate = rank1TotalSuply > 0
     ? Math.round((rank1GrandTotal / rank1TotalSuply) * 100) / 100
+    : 0
+
+  // 2순위 합계 행
+  const rank2TotalLocal = rank2ByType.filter((r) => r.hasData).reduce((s, r) => s + r.local, 0)
+  const rank2TotalEtc = rank2ByType.filter((r) => r.hasData).reduce((s, r) => s + r.etc, 0)
+  const rank2GrandTotal = rank2TotalLocal + rank2TotalEtc
+  const rank2AvgRate = rank1TotalSuply > 0
+    ? Math.round((rank2GrandTotal / rank1TotalSuply) * 100) / 100
+    : 0
+  const hasRank2Data = rank2ByType.some((r) => r.hasData)
+
+  // 1+2순위 총계
+  const combinedGrandTotal = rank1GrandTotal + rank2GrandTotal
+  const combinedAvgRate = rank1TotalSuply > 0
+    ? Math.round((combinedGrandTotal / rank1TotalSuply) * 100) / 100
     : 0
 
   // === 청약홈 직접 조회 자동 폴백 ===
@@ -1315,71 +1401,134 @@ function ThisWeekCard({
         </div>
       )}
 
-      {/* ===== 일반공급 1순위 청약접수 현황 ===== */}
+      {/* ===== 일반공급 1·2순위 청약접수 현황 ===== */}
       {hasRank1Data && (
         <div className="mt-4">
-          <p className="text-xs font-semibold text-rose-600 mb-2">📊 일반공급 1순위 청약접수 현황</p>
+          <p className="text-xs font-semibold text-rose-600 mb-2">📊 일반공급 1·2순위 청약접수 현황</p>
           <div className="overflow-x-auto">
             <table className="w-full text-[10px] sm:text-[11px] border-collapse">
               <thead>
                 <tr className="bg-rose-50 text-gray-700">
-                  <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">타입</th>
-                  <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">공급<br/>세대</th>
+                  <th className="border border-rose-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>주택형</th>
+                  <th className="border border-rose-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>공급<br/>세대</th>
+                  <th className="border border-rose-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>구분</th>
                   <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
                   <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
                   <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">소계</th>
                   <th className="border border-rose-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
+                  <th className="border border-rose-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>1+2순위<br/>총접수</th>
+                  <th className="border border-rose-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>총<br/>경쟁률</th>
                 </tr>
               </thead>
               <tbody>
-                {rank1ByType.map((r) => (
-                  <tr key={r.type} className="hover:bg-gray-50">
-                    <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-rose-700">
-                      {r.typeLabel}
-                    </td>
-                    <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">
-                      {r.suply.toLocaleString()}
-                    </td>
-                    <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">
-                      {r.local.toLocaleString()}
-                    </td>
-                    <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700">
-                      {r.etc.toLocaleString()}
-                    </td>
-                    <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold ${r.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                      {r.total.toLocaleString()}
-                    </td>
-                    <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-semibold ${r.rate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
-                      {r.suply > 0
-                        ? (r.rate < 1
-                            ? `미달 (${r.rate.toFixed(2)})`
-                            : `${r.rate.toFixed(2)} 대 1`)
-                        : '-'}
-                    </td>
-                  </tr>
-                ))}
-                {/* 합계 행 */}
+                {rank1ByType.flatMap((r1) => {
+                  const r2 = rank2ByType.find((x) => x.type === r1.type)
+                  const combined = combinedByType.find((x) => x.type === r1.type)
+                  const r2HasData = r2?.hasData ?? false
+                  return [
+                    /* 1순위 행 */
+                    <tr key={`${r1.type}-r1`} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 px-1.5 py-1.5 text-center font-semibold text-rose-700" rowSpan={2}>
+                        {r1.typeLabel}
+                      </td>
+                      <td className="border border-gray-200 px-1.5 py-1.5 text-center text-gray-700" rowSpan={2}>
+                        {r1.suply.toLocaleString()}
+                      </td>
+                      <td className="border border-gray-200 px-1.5 py-1 text-center text-blue-700 text-[10px] font-semibold bg-blue-50">1순위</td>
+                      <td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
+                        {r1.local.toLocaleString()}
+                      </td>
+                      <td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
+                        {r1.etc.toLocaleString()}
+                      </td>
+                      <td className={`border border-gray-200 px-1.5 py-1 text-center font-bold ${r1.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                        {r1.total.toLocaleString()}
+                      </td>
+                      <td className={`border border-gray-200 px-1.5 py-1 text-center font-semibold ${r1.rate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
+                        {r1.suply > 0
+                          ? (r1.rate < 1
+                              ? `미달 (${r1.rate.toFixed(2)})`
+                              : `${r1.rate.toFixed(2)} : 1`)
+                          : '-'}
+                      </td>
+                      <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-extrabold bg-red-50 ${combined && combined.totalReq > 0 ? 'text-red-700' : 'text-gray-400'}`} rowSpan={2}>
+                        {combined ? combined.totalReq.toLocaleString() : '-'}
+                      </td>
+                      <td className={`border border-gray-200 px-1.5 py-1.5 text-center font-bold bg-red-50 ${combined && combined.combinedRate >= 1 ? 'text-red-700' : 'text-gray-500'}`} rowSpan={2}>
+                        {combined && r1.suply > 0
+                          ? (combined.combinedRate < 1
+                              ? `미달 (${combined.combinedRate.toFixed(2)})`
+                              : `${combined.combinedRate.toFixed(2)} : 1`)
+                          : '-'}
+                      </td>
+                    </tr>,
+                    /* 2순위 행 */
+                    <tr key={`${r1.type}-r2`} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 px-1.5 py-1 text-center text-orange-700 text-[10px] font-semibold bg-orange-50">2순위</td>
+                      <td className={`border border-gray-200 px-1.5 py-1 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
+                        {r2HasData ? r2!.local.toLocaleString() : '-'}
+                      </td>
+                      <td className={`border border-gray-200 px-1.5 py-1 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
+                        {r2HasData ? r2!.etc.toLocaleString() : '-'}
+                      </td>
+                      <td className={`border border-gray-200 px-1.5 py-1 text-center font-bold ${r2HasData && r2!.total > 0 ? 'text-orange-600' : 'text-gray-300'}`}>
+                        {r2HasData ? r2!.total.toLocaleString() : '-'}
+                      </td>
+                      <td className={`border border-gray-200 px-1.5 py-1 text-center font-semibold ${r2HasData && r2!.rate >= 1 ? 'text-orange-700' : 'text-gray-300'}`}>
+                        {r2HasData && r2!.rate > 0 ? `${r2!.rate.toFixed(2)} : 1` : '-'}
+                      </td>
+                    </tr>
+                  ]
+                })}
+                {/* 합계 행 (1순위) */}
                 <tr className="bg-amber-50 border-t-2 border-amber-300">
-                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
-                    계
-                  </td>
-                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800" rowSpan={2}>합계</td>
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800" rowSpan={2}>
                     {rank1TotalSuply.toLocaleString()}
                   </td>
-                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                  <td className="border border-amber-200 px-1.5 py-1 text-center text-blue-700 text-[10px] font-semibold bg-blue-100">1순위</td>
+                  <td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
                     {rank1TotalLocal.toLocaleString()}
                   </td>
-                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-bold text-amber-800">
+                  <td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
                     {rank1TotalEtc.toLocaleString()}
                   </td>
-                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-50">
+                  <td className="border border-amber-200 px-1.5 py-1 text-center font-extrabold text-red-700">
                     {rank1GrandTotal.toLocaleString()}
                   </td>
-                  <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold ${rank1AvgRate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
+                  <td className={`border border-amber-200 px-1.5 py-1 text-center font-bold ${rank1AvgRate >= 1 ? 'text-rose-700' : 'text-gray-500'}`}>
                     {rank1TotalSuply > 0
                       ? (rank1AvgRate < 1
                           ? `미달 (${rank1AvgRate.toFixed(2)})`
-                          : `${rank1AvgRate.toFixed(2)} 대 1`)
+                          : `${rank1AvgRate.toFixed(2)} : 1`)
+                      : '-'}
+                  </td>
+                  <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 bg-red-100" rowSpan={2}>
+                    {combinedGrandTotal.toLocaleString()}
+                  </td>
+                  <td className={`border border-amber-200 px-1.5 py-1.5 text-center font-extrabold bg-red-100 ${combinedAvgRate >= 1 ? 'text-red-700' : 'text-gray-500'}`} rowSpan={2}>
+                    {rank1TotalSuply > 0
+                      ? (combinedAvgRate < 1
+                          ? `미달 (${combinedAvgRate.toFixed(2)})`
+                          : `${combinedAvgRate.toFixed(2)} : 1`)
+                      : '-'}
+                  </td>
+                </tr>
+                {/* 합계 행 (2순위) */}
+                <tr className="bg-amber-50">
+                  <td className="border border-amber-200 px-1.5 py-1 text-center text-orange-700 text-[10px] font-semibold bg-orange-100">2순위</td>
+                  <td className={`border border-amber-200 px-1.5 py-1 text-center font-bold ${hasRank2Data ? 'text-amber-800' : 'text-gray-300'}`}>
+                    {hasRank2Data ? rank2TotalLocal.toLocaleString() : '-'}
+                  </td>
+                  <td className={`border border-amber-200 px-1.5 py-1 text-center font-bold ${hasRank2Data ? 'text-amber-800' : 'text-gray-300'}`}>
+                    {hasRank2Data ? rank2TotalEtc.toLocaleString() : '-'}
+                  </td>
+                  <td className={`border border-amber-200 px-1.5 py-1 text-center font-extrabold ${hasRank2Data ? 'text-orange-700' : 'text-gray-300'}`}>
+                    {hasRank2Data ? rank2GrandTotal.toLocaleString() : '-'}
+                  </td>
+                  <td className={`border border-amber-200 px-1.5 py-1 text-center font-bold ${hasRank2Data && rank2AvgRate >= 1 ? 'text-orange-700' : 'text-gray-300'}`}>
+                    {hasRank2Data && rank1TotalSuply > 0
+                      ? `${rank2AvgRate.toFixed(2)} : 1`
                       : '-'}
                   </td>
                 </tr>
@@ -1387,7 +1536,7 @@ function ThisWeekCard({
             </table>
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5">
-            ※ 1순위 해당지역 + 기타지역 신청건수 기준 / 경쟁률 = 신청건수 ÷ 공급세대수
+            ※ 총 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미
           </p>
         </div>
       )}
@@ -1757,62 +1906,110 @@ function ThisWeekCard({
 
             {/* 표 제목 */}
             <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#e11d48', marginBottom: '8px' }}>
-              📊 일반공급 1순위 청약접수 현황
+              📊 일반공급 1·2순위 청약접수 현황
             </div>
 
-            {/* 1순위 표 */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
+            {/* 1·2순위 통합 표 */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '90px' }} />
-                <col style={{ width: '100px' }} />
-                <col style={{ width: '110px' }} />
-                <col style={{ width: '110px' }} />
-                <col style={{ width: '100px' }} />
-                <col style={{ width: '' }} />{/* 경쟁률은 가변 */}
+                <col style={{ width: '60px' }} />{/* 주택형 */}
+                <col style={{ width: '70px' }} />{/* 공급세대 */}
+                <col style={{ width: '52px' }} />{/* 구분 */}
+                <col style={{ width: '70px' }} />{/* 해당 */}
+                <col style={{ width: '70px' }} />{/* 기타 */}
+                <col style={{ width: '70px' }} />{/* 소계 */}
+                <col style={{ width: '90px' }} />{/* 경쟁률 */}
+                <col style={{ width: '80px' }} />{/* 총접수 */}
+                <col style={{ width: '' }} />{/* 총경쟁률 가변 */}
               </colgroup>
               <thead>
                 <tr style={{ backgroundColor: '#ffe4e6', color: '#374151' }}>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>타입</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>공급세대</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>해당지역</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>기타지역</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>소계</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '10px 6px', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>경쟁률</th>
+                  <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>주택형</th>
+                  <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>공급<br/>세대</th>
+                  <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>구분</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>해당<br/>지역</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>기타<br/>지역</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>소계</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>경쟁률</th>
+                  <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>1+2순위<br/>총접수</th>
+                  <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>총<br/>경쟁률</th>
                 </tr>
               </thead>
               <tbody>
-                {rank1ByType.map((r) => (
-                  <tr key={r.type}>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', fontWeight: 600, color: '#be123c', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{r.typeLabel}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r.suply.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r.local.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r.etc.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', fontWeight: 700, color: r.total > 0 ? '#dc2626' : '#9ca3af', verticalAlign: 'middle' }}>{r.total.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px 6px', textAlign: 'center', fontWeight: 600, color: r.rate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                      {r.suply > 0
-                        ? (r.rate < 1 ? `미달 (${r.rate.toFixed(2)})` : `${r.rate.toFixed(2)} 대 1`)
-                        : '-'}
-                    </td>
-                  </tr>
-                ))}
-                {/* 합계 행 */}
+                {rank1ByType.flatMap((r1) => {
+                  const r2 = rank2ByType.find((x) => x.type === r1.type)
+                  const combined = combinedByType.find((x) => x.type === r1.type)
+                  const r2HasData = r2?.hasData ?? false
+                  return [
+                    /* 1순위 행 */
+                    <tr key={`${r1.type}-r1`}>
+                      <td rowSpan={2} style={{ border: '1px solid #e5e7eb', padding: '8px 4px', textAlign: 'center', fontWeight: 600, color: '#be123c', verticalAlign: 'middle' }}>{r1.typeLabel}</td>
+                      <td rowSpan={2} style={{ border: '1px solid #e5e7eb', padding: '8px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.suply.toLocaleString()}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600, fontSize: '11px', backgroundColor: '#eff6ff', verticalAlign: 'middle' }}>1순위</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.local.toLocaleString()}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.etc.toLocaleString()}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: r1.total > 0 ? '#dc2626' : '#9ca3af', verticalAlign: 'middle' }}>{r1.total.toLocaleString()}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: r1.rate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
+                        {r1.suply > 0
+                          ? (r1.rate < 1 ? `미달(${r1.rate.toFixed(2)})` : `${r1.rate.toFixed(2)} : 1`)
+                          : '-'}
+                      </td>
+                      <td rowSpan={2} style={{ border: '1px solid #e5e7eb', padding: '8px 4px', textAlign: 'center', fontWeight: 800, color: combined && combined.totalReq > 0 ? '#b91c1c' : '#9ca3af', backgroundColor: '#fef2f2', verticalAlign: 'middle' }}>
+                        {combined ? combined.totalReq.toLocaleString() : '-'}
+                      </td>
+                      <td rowSpan={2} style={{ border: '1px solid #e5e7eb', padding: '8px 4px', textAlign: 'center', fontWeight: 700, color: combined && combined.combinedRate >= 1 ? '#b91c1c' : '#6b7280', backgroundColor: '#fef2f2', verticalAlign: 'middle' }}>
+                        {combined && r1.suply > 0
+                          ? (combined.combinedRate < 1 ? `미달(${combined.combinedRate.toFixed(2)})` : `${combined.combinedRate.toFixed(2)} : 1`)
+                          : '-'}
+                      </td>
+                    </tr>,
+                    /* 2순위 행 */
+                    <tr key={`${r1.type}-r2`}>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#c2410c', fontWeight: 600, fontSize: '11px', backgroundColor: '#fff7ed', verticalAlign: 'middle' }}>2순위</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: r2HasData ? '#4b5563' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? r2!.local.toLocaleString() : '-'}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: r2HasData ? '#4b5563' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? r2!.etc.toLocaleString() : '-'}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: r2HasData && r2!.total > 0 ? '#ea580c' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? r2!.total.toLocaleString() : '-'}</td>
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: r2HasData && r2!.rate >= 1 ? '#c2410c' : '#d1d5db', verticalAlign: 'middle' }}>
+                        {r2HasData && r2!.rate > 0 ? `${r2!.rate.toFixed(2)} : 1` : '-'}
+                      </td>
+                    </tr>
+                  ]
+                })}
+                {/* 합계 행 (1순위) */}
                 <tr style={{ backgroundColor: '#fef3c7', borderTop: '2px solid #fbbf24' }}>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>계</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalSuply.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalLocal.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalEtc.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>{rank1GrandTotal.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 6px', textAlign: 'center', fontWeight: 800, color: rank1AvgRate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                  <td rowSpan={2} style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>합계</td>
+                  <td rowSpan={2} style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalSuply.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600, fontSize: '11px', backgroundColor: '#dbeafe', verticalAlign: 'middle' }}>1순위</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalLocal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalEtc.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', verticalAlign: 'middle' }}>{rank1GrandTotal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: rank1AvgRate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
                     {rank1TotalSuply > 0
-                      ? (rank1AvgRate < 1 ? `미달 (${rank1AvgRate.toFixed(2)})` : `${rank1AvgRate.toFixed(2)} 대 1`)
+                      ? (rank1AvgRate < 1 ? `미달(${rank1AvgRate.toFixed(2)})` : `${rank1AvgRate.toFixed(2)} : 1`)
                       : '-'}
+                  </td>
+                  <td rowSpan={2} style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>{combinedGrandTotal.toLocaleString()}</td>
+                  <td rowSpan={2} style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 800, color: combinedAvgRate >= 1 ? '#b91c1c' : '#6b7280', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>
+                    {rank1TotalSuply > 0
+                      ? (combinedAvgRate < 1 ? `미달(${combinedAvgRate.toFixed(2)})` : `${combinedAvgRate.toFixed(2)} : 1`)
+                      : '-'}
+                  </td>
+                </tr>
+                {/* 합계 행 (2순위) */}
+                <tr style={{ backgroundColor: '#fef3c7' }}>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', color: '#c2410c', fontWeight: 600, fontSize: '11px', backgroundColor: '#fed7aa', verticalAlign: 'middle' }}>2순위</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: hasRank2Data ? '#92400e' : '#d1d5db', verticalAlign: 'middle' }}>{hasRank2Data ? rank2TotalLocal.toLocaleString() : '-'}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: hasRank2Data ? '#92400e' : '#d1d5db', verticalAlign: 'middle' }}>{hasRank2Data ? rank2TotalEtc.toLocaleString() : '-'}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 800, color: hasRank2Data ? '#ea580c' : '#d1d5db', verticalAlign: 'middle' }}>{hasRank2Data ? rank2GrandTotal.toLocaleString() : '-'}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: hasRank2Data && rank2AvgRate >= 1 ? '#c2410c' : '#d1d5db', verticalAlign: 'middle' }}>
+                    {hasRank2Data && rank1TotalSuply > 0 ? `${rank2AvgRate.toFixed(2)} : 1` : '-'}
                   </td>
                 </tr>
               </tbody>
             </table>
 
             <div style={{ marginTop: '8px', fontSize: '10px', color: '#9ca3af' }}>
-              ※ 1순위 해당지역 + 기타지역 신청건수 기준 / 경쟁률 = 신청건수 ÷ 공급세대수
+              ※ 총 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미
               <br />출처: 청약홈 (한국부동산원)
             </div>
           </div>
