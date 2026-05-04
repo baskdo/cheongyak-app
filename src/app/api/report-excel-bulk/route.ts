@@ -9,7 +9,9 @@ export const runtime = 'nodejs'
 type BulkRow = {
   type: string         // 원본 ("059.9714")
   typeLabel: string    // 표시용 ("59" 또는 "59A")
-  announcedSuply: number  // 공고문상 총 공급세대수 (특공+1순위)
+  // 공고 API의 SUPLY_HSHLDCO = 일반분양 세대수만 (특공 제외)
+  // → 총 공급세대수 = announcedSuply + spsplyAssigned
+  announcedSuply: number  // 일반분양 세대수 (공고문상)
   suply: number        // 1순위 모집세대수 (이미 이월 반영됨)
   spsplyAssigned: number  // 특별공급 배정세대수
   spsplyApplied: number   // 특별공급 청약접수
@@ -93,10 +95,13 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
     // 주택형별 행
     for (const row of house.rows) {
       // row.suply는 이미 1순위 배정 (청약홈 API가 특공 미달분 이월 처리)
-      // row.announcedSuply는 공고문상 총 공급세대수
+      // row.announcedSuply는 공고문상 일반분양 세대수
+      // → 총 공급세대수 = 일반분양 + 특공배정
       const totalApplied = row.rank1Applied + row.rank2Applied
       const note = determineNote(row)
-      const announced = row.announcedSuply > 0 ? row.announcedSuply : (row.spsplyAssigned + row.suply)
+      const announced = (row.announcedSuply > 0 || row.spsplyAssigned > 0)
+        ? row.announcedSuply + row.spsplyAssigned
+        : row.suply
 
       ws.addRow({
         houseName: house.houseName,

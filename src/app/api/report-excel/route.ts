@@ -8,7 +8,9 @@ export const runtime = 'nodejs' // exceljs는 nodejs 런타임 필요
 type ReportRow = {
   type: string         // 원본 ("059.9714")
   typeLabel: string    // 표시용 ("59" 또는 "59A")
-  announcedSuply: number  // 공고문상 총 공급세대수 (특공+1순위) - typeDetails의 suplyHshldco
+  // 공고 API의 SUPLY_HSHLDCO = 일반분양 세대수만 (특공 제외)
+  // → 총 공급세대수 = announcedSuply + spsplyAssigned (공고문상)
+  announcedSuply: number  // 일반분양 세대수 (공고문상 일반분양 계획)
   suply: number        // 1순위 모집세대수 (이미 이월 반영됨, getAPTLttotPblancCmpet의 SUPLY_HSHLDCO)
   spsplyAssigned: number  // 특별공급 배정세대수
   spsplyApplied: number   // 특별공급 청약접수
@@ -169,11 +171,14 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     const r = ws.getRow(rowNum)
 
     // row.suply는 이미 1순위 모집세대수 (청약홈 API가 특공 미달분 이월 처리해서 줌)
-    // row.announcedSuply는 공고문상 총 공급세대수 (= 특공 배정 + 1순위 배정)
+    // row.announcedSuply는 공고문상 일반분양 세대수 (특공 제외)
+    // → 총 공급세대수 = 일반분양 + 특공배정
     const totalApplied = row.rank1Applied + row.rank2Applied
     const note = determineNote(row)
-    // announcedSuply가 없으면 (특공 + 1순위)로 추정
-    const announced = row.announcedSuply > 0 ? row.announcedSuply : (row.spsplyAssigned + row.suply)
+    // 총 공급세대수 = 일반분양 + 특공배정 (둘 다 0이면 1순위 모집을 폴백)
+    const announced = (row.announcedSuply > 0 || row.spsplyAssigned > 0)
+      ? row.announcedSuply + row.spsplyAssigned
+      : row.suply
 
     // 표시 규칙: 접수가 0이거나 데이터가 없으면 '-' 대시
     const dashIfZero = (n: number) => (n > 0 ? n : '-')
@@ -326,10 +331,13 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
 
   for (const row of payload.rows) {
     // row.suply는 이미 1순위 배정 (청약홈 API가 특공 미달분 이월 처리)
-    // row.announcedSuply는 공고문상 총 공급세대수
+    // row.announcedSuply는 공고문상 일반분양 세대수
+    // → 총 공급세대수 = 일반분양 + 특공배정
     const totalApplied = row.rank1Applied + row.rank2Applied
     const note = determineNote(row)
-    const announced = row.announcedSuply > 0 ? row.announcedSuply : (row.spsplyAssigned + row.suply)
+    const announced = (row.announcedSuply > 0 || row.spsplyAssigned > 0)
+      ? row.announcedSuply + row.spsplyAssigned
+      : row.suply
 
     ws.addRow({
       houseName: payload.houseName,
