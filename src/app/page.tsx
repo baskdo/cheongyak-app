@@ -133,6 +133,43 @@ type ApplyhomeCompetitionData = {
   error?: string
 }
 
+// 청약홈 사이트 직접 조회 결과 - 특별공급 (공공 API 폴백용)
+type ApplyhomeSpsplyGeneral = {
+  name: '다자녀' | '신혼부부' | '생애최초' | '청년' | '노부모' | '신생아'
+  suply: number
+  local: number
+  ggOther: number
+  etc: number
+  total: number
+}
+type ApplyhomeSpsplyInst = {
+  name: '기관추천' | '이전기관'
+  suply: number
+  decided: number
+  pending: number
+  total: number
+}
+type ApplyhomeSpsplyHouseType = {
+  type: string
+  typeLabel: string
+  spsplyHshldco: number
+  general: ApplyhomeSpsplyGeneral[]
+  inst: ApplyhomeSpsplyInst[]
+  totalAssigned: number
+  totalApplied: number
+}
+type ApplyhomeSpsplyData = {
+  ok: boolean
+  pblancNo: string
+  source: 'applyhome-spsply'
+  fetchedAt: string
+  subscrptResultNm: string
+  houseTypes: ApplyhomeSpsplyHouseType[]
+  totalSuply: number
+  totalApplied: number
+  error?: string
+}
+
 // ===================== CONSTANTS =====================
 const REGIONS = ['전체', '서울', '경기', '인천', '부산', '대구', '광주', '대전', '울산', '세종', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
 const STATUSES = ['전체', '접수예정', '접수중']
@@ -813,6 +850,46 @@ function getPeriodYmRange(periodKey: string): { from: string; to: string } {
   }
 }
 
+// 청약홈 특공 폴백 응답을 공공 API와 같은 SpecialSupplyItem 형식으로 변환
+// — 이렇게 통일하면 ThisWeekCard 렌더 코드를 한 줄도 안 바꿔도 됨
+function convertApplyhomeSpsplyToItem(
+  notice: { id: string; name: string; region?: string; rceptBgnde: string; rceptEndde: string },
+  data: ApplyhomeSpsplyData
+): SpecialSupplyItem {
+  const houseTypes: SpecialSupplyHouseType[] = data.houseTypes.map((ht) => {
+    const categories: SpecialSupplyCategory[] = []
+    for (const g of ht.general) {
+      categories.push({
+        name: g.name,
+        suply: g.suply,
+        areaData: { 해당: g.local, 기타경기: g.ggOther, 기타지역: g.etc },
+      })
+    }
+    for (const i of ht.inst) {
+      categories.push({
+        name: i.name,
+        suply: i.suply,
+        instData: { 결정: i.decided, 미결: i.pending },
+      })
+    }
+    return {
+      type: ht.type,
+      typeLabel: ht.typeLabel,
+      spsplyHshldco: ht.spsplyHshldco,
+      categories,
+    }
+  })
+  return {
+    pblancNo: notice.id,
+    houseName: notice.name,
+    region: notice.region || '',
+    rceptBgnde: notice.rceptBgnde,
+    rceptEndde: notice.rceptEndde,
+    subscrptResultNm: data.subscrptResultNm || '청약홈 직접 조회',
+    houseTypes,
+  }
+}
+
 // ===================== 금주 접수현황 카드 =====================
 function ThisWeekCard({
   notice,
@@ -823,12 +900,40 @@ function ThisWeekCard({
   specialSupply: SpecialSupplyItem | null
   competition: CompetitionItem | null
 }) {
-  const hasSpsplyData = specialSupply && specialSupply.houseTypes.length > 0
-  const spsplyResultName = specialSupply?.subscrptResultNm || ''
-
   // === 청약홈 직접 조회 폴백 (공공 API에 1순위 데이터 없을 때만 자동 호출) ===
   const [applyhomeData, setApplyhomeData] = useState<ApplyhomeCompetitionData | null>(null)
   const [applyhomeLoading, setApplyhomeLoading] = useState(false)
+
+  // === 청약홈 직접 조회 폴백 (특별공급) — 1순위 폴백과 동일 패턴 ===
+  const [applyhomeSpsplyData, setApplyhomeSpsplyData] = useState<ApplyhomeSpsplyData | null>(null)
+  const [applyhomeSpsplyLoading, setApplyhomeSpsplyLoading] = useState(false)
+
+  // 공공 API와 청약홈 폴백 중 "유효한 쪽"을 effective로 통일하여 렌더에 사용.
+  // 우선순위: 공공 API > 청약홈 폴백 (공공 API에 데이터 차면 그쪽이 정답)
+  const publicHasSpsply = !!(specialSupply && specialSupply.houseTypes.length > 0)
+  const fallbackHasSpsply = !!(
+    applyhomeSpsplyData &&
+    applyhomeSpsplyData.ok &&
+    applyhomeSpsplyData.houseTypes.length > 0
+  )
+  const effectiveSpecialSupply: SpecialSupplyItem | null = publicHasSpsply
+    ? specialSupply
+    : fallbackHasSpsply
+      ? convertApplyhomeSpsplyToItem(
+          {
+            id: notice.id,
+            name: notice.name,
+            region: notice.region,
+            rceptBgnde: notice.rceptBgnde,
+            rceptEndde: notice.rceptEndde,
+          },
+          applyhomeSpsplyData!
+        )
+      : null
+  const hasSpsplyData = !!(effectiveSpecialSupply && effectiveSpecialSupply.houseTypes.length > 0)
+  const spsplyResultName = effectiveSpecialSupply?.subscrptResultNm || ''
+  // 폴백 출처 표기용 (공공 API가 비어 있고 폴백이 채운 경우만 true)
+  const isSpsplyFromApplyhome = !publicHasSpsply && fallbackHasSpsply
 
   // 캡처용 숨겨진 영역 ref
   const captureSpsplyRef = useRef<HTMLDivElement>(null)
@@ -1087,14 +1192,15 @@ function ThisWeekCard({
     setDownloadingExcel(true)
     try {
       // 페이로드 구성 — 주택형별 행 데이터
-      // 특공 배정/청약은 specialSupply에서 주택형별 매칭
+      // 특공 배정/청약은 effectiveSpecialSupply에서 주택형별 매칭
+      //   → 공공 API 데이터가 없으면 청약홈 폴백 데이터를 사용 (1순위와 동일 패턴)
       // 공고문상 공급세대수(announcedSuply)는 notice.typeDetails의 suplyHshldco
       const rows = rank1ByType.map((r1) => {
         // 특공 매칭 (주택형 원본값으로 매칭)
         let spsplyAssigned = 0
         let spsplyApplied = 0
-        if (specialSupply && specialSupply.houseTypes.length > 0) {
-          const ht = specialSupply.houseTypes.find((h) => h.type.trim() === r1.type.trim())
+        if (effectiveSpecialSupply && effectiveSpecialSupply.houseTypes.length > 0) {
+          const ht = effectiveSpecialSupply.houseTypes.find((h) => h.type.trim() === r1.type.trim())
           if (ht) {
             spsplyAssigned = ht.spsplyHshldco
             // 카테고리별 접수 건수 합산 (해당+기타경기+기타지역 / 결정수)
@@ -1247,6 +1353,64 @@ function ThisWeekCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasRank1Data, notice.id])
 
+  // === 청약홈 직접 조회 자동 폴백 (특별공급) ===
+  // 조건: 공공 API에 특공 데이터 없음(publicHasSpsply=false)
+  //   + 특공 접수일이 도래했음 (= 청약홈엔 발표 후 데이터 있음)
+  //   + notice.id가 유효한 공고번호 형식
+  //   + LH/SH 등 공공기관 청약 단지는 폴백 호출 안 함
+  // 캐시: 서버 측 5분 (route.ts revalidate=300)
+  useEffect(() => {
+    if (publicHasSpsply) return // 공공 API에 데이터 있으면 폴백 불필요
+    if (isPublicHousing(notice.hompageUrl)) return
+
+    const pblancNo = String(notice.id || '').trim()
+    if (!/^\d{6,12}$/.test(pblancNo)) return
+
+    // 특공 접수일 도래 여부 확인 (특공 시작 전이면 청약홈도 비어있음)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const spsplyDate = parseDateOnly(deriveSpsplyDate(notice))
+    if (spsplyDate && today.getTime() < spsplyDate.getTime()) return
+
+    let cancelled = false
+    const fetchApplyhomeSpsply = async () => {
+      setApplyhomeSpsplyLoading(true)
+      try {
+        // houseNm은 빈 값이어도 응답 오지만, 청약홈이 거부할 가능성 대비해 같이 전송
+        const params = new URLSearchParams()
+        params.set('pblancNo', pblancNo)
+        if (notice.name) params.set('houseNm', notice.name)
+        const res = await fetch(`/api/spsply-scrape?${params.toString()}`)
+        const data: ApplyhomeSpsplyData = await res.json()
+        if (!cancelled) {
+          setApplyhomeSpsplyData(data)
+          setApplyhomeSpsplyLoading(false)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setApplyhomeSpsplyData({
+            ok: false,
+            pblancNo,
+            source: 'applyhome-spsply',
+            fetchedAt: new Date().toISOString(),
+            subscrptResultNm: '',
+            houseTypes: [],
+            totalSuply: 0,
+            totalApplied: 0,
+            error: String(e),
+          })
+          setApplyhomeSpsplyLoading(false)
+        }
+      }
+    }
+    fetchApplyhomeSpsply()
+    return () => {
+      cancelled = true
+      setApplyhomeSpsplyLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicHasSpsply, notice.id])
+
   // 폴백 응답이 "의미 있는" 데이터인지 판단:
   //   - ok 응답
   //   - rank1ByType 배열에 항목이 있고
@@ -1393,9 +1557,14 @@ function ThisWeekCard({
       </div>
 
       {/* 특별공급 신청현황 - 가로 풀폭 표 */}
-      {hasSpsplyData && specialSupply && (
+      {hasSpsplyData && effectiveSpecialSupply && (
         <div>
-          <p className="text-xs font-semibold text-blue-600 mb-2">🎯 특별공급 청약접수 현황 (청약홈 동일)</p>
+          <p className="text-xs font-semibold text-blue-600 mb-2">
+            🎯 특별공급 청약접수 현황 (청약홈 동일)
+            {isSpsplyFromApplyhome && (
+              <span className="ml-2 text-[10px] text-emerald-600 font-medium">청약홈 직접 조회</span>
+            )}
+          </p>
           <div className="overflow-x-auto">
             <table className="w-full text-[10px] sm:text-[11px] border-collapse">
               <thead>
@@ -1418,7 +1587,7 @@ function ThisWeekCard({
                 </tr>
               </thead>
               <tbody>
-                {specialSupply.houseTypes.flatMap((ht) => {
+                {effectiveSpecialSupply.houseTypes.flatMap((ht) => {
                   // 카테고리별 데이터를 8개 컬럼으로 매핑
                   const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
                   const findCat = (name: string) => ht.categories.find(c => c.name === name)
@@ -1470,9 +1639,9 @@ function ThisWeekCard({
                 {/* ===== 합계 행 (전체 주택형 카테고리별 접수건수 총합) ===== */}
                 {(() => {
                   const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
-                  const totalSupply = specialSupply.houseTypes.reduce((sum, ht) => sum + ht.spsplyHshldco, 0)
+                  const totalSupply = effectiveSpecialSupply.houseTypes.reduce((sum, ht) => sum + ht.spsplyHshldco, 0)
                   const categoryTotals = order.map(name => {
-                    return specialSupply.houseTypes.reduce((sum, ht) => {
+                    return effectiveSpecialSupply.houseTypes.reduce((sum, ht) => {
                       const cat = ht.categories.find(c => c.name === name)
                       if (!cat) return sum
                       if (cat.areaData) {
@@ -1879,7 +2048,7 @@ function ThisWeekCard({
         aria-hidden="true"
       >
         {/* === 특공 캡처용 === */}
-        {hasSpsplyData && specialSupply && (
+        {hasSpsplyData && effectiveSpecialSupply && (
           <div ref={captureSpsplyRef} style={{ width: '760px', padding: '32px 24px 24px 24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif', boxSizing: 'border-box' }}>
             {/* 헤더: 단지명 + 지역/주소 */}
             <div style={{ borderBottom: '2px solid #2563eb', paddingBottom: '12px', marginBottom: '16px' }}>
@@ -1925,7 +2094,7 @@ function ThisWeekCard({
                 </tr>
               </thead>
               <tbody>
-                {specialSupply.houseTypes.flatMap((ht) => {
+                {effectiveSpecialSupply.houseTypes.flatMap((ht) => {
                   const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
                   const findCat = (name: string) => ht.categories.find(c => c.name === name)
                   const assignedRow = order.map(name => {
@@ -1972,9 +2141,9 @@ function ThisWeekCard({
                 {/* 합계 행 */}
                 {(() => {
                   const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
-                  const totalSupply = specialSupply.houseTypes.reduce((sum, ht) => sum + ht.spsplyHshldco, 0)
+                  const totalSupply = effectiveSpecialSupply.houseTypes.reduce((sum, ht) => sum + ht.spsplyHshldco, 0)
                   const categoryTotals = order.map(name => {
-                    return specialSupply.houseTypes.reduce((sum, ht) => {
+                    return effectiveSpecialSupply.houseTypes.reduce((sum, ht) => {
                       const cat = ht.categories.find(c => c.name === name)
                       if (!cat) return sum
                       if (cat.areaData) return sum + cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
