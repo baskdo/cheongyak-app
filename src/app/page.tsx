@@ -243,25 +243,28 @@ function formatDday(target: string): string {
 }
 
 // 특별공급 접수일 결정.
-// 1) 서버가 SPSPLY_RCEPT_BGNDE를 줬으면 그대로 사용 (청약홈 공식 필드)
-// 2) 없으면 RCEPT_BGNDE(전체 접수 시작일)로 폴백
+// — 청약홈 공식 필드(SPSPLY_RCEPT_BGNDE)가 있을 때만 반환.
+// — 없으면 빈 문자열 (LH 공공분양처럼 특공 자체가 없는 단지)
+// 이전엔 RCEPT_BGNDE로 폴백했는데, 이러면 1순위 날짜가 특공일로 둔갑하는 문제가 있어 제거함.
 function deriveSpsplyDate(item: { rceptBgnde: string; spsplyRceptBgnde?: string }): string {
-  return item.spsplyRceptBgnde || item.rceptBgnde || ''
+  return item.spsplyRceptBgnde || ''
 }
 
 // 1순위 접수일 결정.
 // 1) 서버가 GNRL_RNK1_*_RCPTDE를 줬으면 그대로 사용 (청약홈 공식 필드)
-// 2) 없으면 특공일 + 1영업일(주말 건너뜀)로 폴백
+// 2) 없고 특공일이 있으면 특공일 + 1영업일(주말 건너뜀)로 폴백
 //    한국 청약 관례: 특공이 금요일이면 1순위는 다음 월요일
+// 3) 특공일도 없으면 rceptBgnde 그대로 (LH 공공분양처럼 특공 자체가 없는 단지)
 function deriveRank1Date(item: {
   rceptBgnde: string
   spsplyRceptBgnde?: string
   rank1RceptBgnde?: string
 }): string {
   if (item.rank1RceptBgnde) return item.rank1RceptBgnde
-  const baseStr = item.spsplyRceptBgnde || item.rceptBgnde
-  const base = parseDateOnly(baseStr)
-  if (!base) return ''
+  // 특공일이 있을 때만 +1영업일 추정. 없으면 rceptBgnde 그대로 사용.
+  if (!item.spsplyRceptBgnde) return item.rceptBgnde || ''
+  const base = parseDateOnly(item.spsplyRceptBgnde)
+  if (!base) return item.rceptBgnde || ''
   const next = new Date(base.getTime() + 24 * 60 * 60 * 1000)
   while (next.getDay() === 0 || next.getDay() === 6) {
     next.setDate(next.getDate() + 1)
@@ -472,17 +475,19 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
 
           return (
             <>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-gray-500">특별공급 접수</span>
-                <span className="flex items-center gap-1.5">
-                  <span className="font-semibold text-blue-600">{formatDate(spsplyDate)}</span>
-                  {spsplyDday && (
-                    <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${ddayClass(spsplyDday)}`}>
-                      {spsplyDday}
-                    </span>
-                  )}
-                </span>
-              </div>
+              {spsplyDate && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-500">특별공급 접수</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-semibold text-blue-600">{formatDate(spsplyDate)}</span>
+                    {spsplyDday && (
+                      <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${ddayClass(spsplyDday)}`}>
+                        {spsplyDday}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-500">1순위 접수</span>
                 <span className="flex items-center gap-1.5">
@@ -1481,16 +1486,29 @@ function ThisWeekCard({
           </span>
         </div>
         {/* 특공/1순위 일정: 한 줄, 색상 구분 */}
+        {/* 특공일이 없는 단지(LH 공공분양 등)는 1순위만 표시 */}
         <div className="flex items-center gap-1.5 text-[11px] whitespace-nowrap">
-          <span className="font-bold text-emerald-600">특공</span>
-          <span className="font-semibold text-gray-700 tabular-nums">
-            {formatShortDate(deriveSpsplyDate(notice))}
-          </span>
-          <span className="text-gray-300">,</span>
-          <span className="font-bold text-rose-600">1순위</span>
-          <span className="font-semibold text-gray-700 tabular-nums">
-            {formatShortDate(deriveRank1Date(notice))}
-          </span>
+          {(() => {
+            const spsplyDateStr = deriveSpsplyDate(notice)
+            const rank1DateStr = deriveRank1Date(notice)
+            return (
+              <>
+                {spsplyDateStr && (
+                  <>
+                    <span className="font-bold text-emerald-600">특공</span>
+                    <span className="font-semibold text-gray-700 tabular-nums">
+                      {formatShortDate(spsplyDateStr)}
+                    </span>
+                    <span className="text-gray-300">,</span>
+                  </>
+                )}
+                <span className="font-bold text-rose-600">1순위</span>
+                <span className="font-semibold text-gray-700 tabular-nums">
+                  {formatShortDate(rank1DateStr)}
+                </span>
+              </>
+            )
+          })()}
         </div>
       </div>
 
