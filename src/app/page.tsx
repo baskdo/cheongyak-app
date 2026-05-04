@@ -1184,26 +1184,56 @@ function ThisWeekCard({
 
   // === 보고서 엑셀 다운로드 ===
   // 청약접수결과 보고서 양식의 .xlsx를 서버에서 생성해 받음
+  // 활성화 조건: 특공 또는 1순위 중 하나라도 데이터 있으면 OK (둘 다 비어있을 때만 비활성)
   const downloadReportExcel = async () => {
-    if (!hasRank1Data) {
-      alert('1순위 데이터가 아직 없어 보고서를 생성할 수 없습니다.')
+    if (!hasSpsplyData && !hasRank1Data) {
+      alert('특별공급/1순위 데이터가 아직 없어 보고서를 생성할 수 없습니다.')
       return
     }
 
     setDownloadingExcel(true)
     try {
       // 페이로드 구성 — 주택형별 행 데이터
+      //   주택형 목록은 1순위 + 특공의 합집합으로 만든다.
+      //   - 특공만 발표된 시점: rank1ByType 비어있어도 특공 주택형들이 행으로 나감 (1순위/2순위 컬럼은 0=대시)
+      //   - 1순위 발표 후: 1순위 행 기준 + 특공 매칭
+      //   - 두 데이터에 모두 등장하는 주택형은 한 번만 행으로 출력
       // 특공 배정/청약은 effectiveSpecialSupply에서 주택형별 매칭
       //   → 공공 API 데이터가 없으면 청약홈 폴백 데이터를 사용 (1순위와 동일 패턴)
       // 공고문상 공급세대수(announcedSuply)는 notice.typeDetails의 suplyHshldco
-      const rows = rank1ByType.map((r1) => {
-        // 특공 매칭 (주택형 원본값으로 매칭)
+
+      // 주택형 합집합 만들기 (정렬 안정화 위해 typeDetails 순서 우선 → 1순위 → 특공)
+      const typeKeys: string[] = []
+      const seen = new Set<string>()
+      const addType = (t: string) => {
+        const k = t.trim()
+        if (!k || seen.has(k)) return
+        seen.add(k)
+        typeKeys.push(k)
+      }
+      // typeDetails(공고문상 주택형)이 있으면 표시 순서 기준
+      if (notice.typeDetails && notice.typeDetails.length > 0) {
+        notice.typeDetails.forEach((td) => addType(td.type))
+      }
+      // 1순위 발표분 합치기
+      rank1ByType.forEach((r1) => addType(r1.type))
+      // 특공 데이터에만 있는 주택형도 합치기
+      if (effectiveSpecialSupply) {
+        effectiveSpecialSupply.houseTypes.forEach((ht) => addType(ht.type))
+      }
+
+      const rows = typeKeys.map((typeKey) => {
+        // 1순위 매칭
+        const r1 = rank1ByType.find((x) => x.type.trim() === typeKey)
+        // 특공 매칭
         let spsplyAssigned = 0
         let spsplyApplied = 0
+        let typeLabel = r1?.typeLabel || ''
         if (effectiveSpecialSupply && effectiveSpecialSupply.houseTypes.length > 0) {
-          const ht = effectiveSpecialSupply.houseTypes.find((h) => h.type.trim() === r1.type.trim())
+          const ht = effectiveSpecialSupply.houseTypes.find((h) => h.type.trim() === typeKey)
           if (ht) {
             spsplyAssigned = ht.spsplyHshldco
+            if (!typeLabel) typeLabel = ht.typeLabel
             // 카테고리별 접수 건수 합산
             //   - 일반 6분류: 해당 + 기타경기 + 기타지역
             //   - 기관추천/이전기관: 결정 + 예비대상자(미결) — 청약홈과 동일
@@ -1220,22 +1250,31 @@ function ThisWeekCard({
         // 공고문상 공급세대수 매칭 (typeDetails의 suplyHshldco — 특공+1순위 합계)
         let announcedSuply = 0
         if (notice.typeDetails && notice.typeDetails.length > 0) {
-          const td = notice.typeDetails.find((d) => d.type.trim() === r1.type.trim())
-          if (td) announcedSuply = td.suplyHshldco
+          const td = notice.typeDetails.find((d) => d.type.trim() === typeKey)
+          if (td) {
+            announcedSuply = td.suplyHshldco
+            if (!typeLabel) typeLabel = td.typeLabel
+          }
+        }
+
+        // typeLabel 폴백 (공고문/특공/1순위 어디에도 없으면 raw 코드에서 직접 만듦)
+        if (!typeLabel) {
+          const m = typeKey.match(/^0*(\d+)\.?\d*([A-Za-z]*)$/)
+          typeLabel = m ? `${parseInt(m[1], 10)}${(m[2] || '').toUpperCase()}` : typeKey
         }
 
         // 2순위 접수 건수
-        const r2 = rank2ByType.find((x) => x.type === r1.type)
+        const r2 = rank2ByType.find((x) => x.type.trim() === typeKey)
         const rank2Applied = r2?.hasData ? r2.total : 0
 
         return {
-          type: r1.type,
-          typeLabel: r1.typeLabel,
+          type: typeKey,
+          typeLabel,
           announcedSuply,  // 공고문상 총 공급세대 (서버에서 0이면 spsplyAssigned+suply로 폴백)
-          suply: r1.suply,  // 1순위 모집세대 (이미 이월 반영됨)
+          suply: r1?.suply || 0,  // 1순위 모집세대 (1순위 데이터 없으면 0)
           spsplyAssigned,
           spsplyApplied,
-          rank1Applied: r1.total,
+          rank1Applied: r1?.total || 0,
           rank2Applied,
         }
       })
@@ -1543,9 +1582,9 @@ function ThisWeekCard({
                   </button>
                   <button
                     onClick={() => downloadReportExcel()}
-                    disabled={capturing !== null || downloadingExcel || !hasRank1Data}
+                    disabled={capturing !== null || downloadingExcel || (!hasSpsplyData && !hasRank1Data)}
                     className="flex items-center justify-center gap-1 bg-white border border-blue-200 text-blue-700 rounded-lg py-2 text-xs font-semibold hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={!hasRank1Data ? '1순위 데이터 없음' : '보고서 양식 엑셀 다운로드'}
+                    title={(!hasSpsplyData && !hasRank1Data) ? '특공/1순위 데이터 없음' : '보고서 양식 엑셀 다운로드'}
                   >
                     {downloadingExcel ? '⏳ 생성 중...' : '📊 보고서 엑셀'}
                   </button>
