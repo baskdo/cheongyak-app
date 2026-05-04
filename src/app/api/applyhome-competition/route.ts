@@ -139,12 +139,17 @@ function parseCompetitionHtml(html: string): { rows: ParsedRow[]; rowCount: numb
     const cellMatches = Array.from(rowHtml.matchAll(/<(td|th)[^>]*>([\s\S]*?)<\/\1>/g))
     const cells = cellMatches.map((c) => cleanCell(c[2]))
 
-    if (!firstSampleRow && cells.length === 8) firstSampleRow = cells
-
-    // 데이터 행 식별: 8개 셀 + 첫 셀이 주택형 형식 ("000.0000A")
-    if (cells.length !== 8) continue
+    // 데이터 행 식별 기준:
+    //   - 셀 개수가 최소 7개 이상 (청약홈은 보통 11개, 옛날엔 8개)
+    //   - 첫 셀이 주택형 형식 ("000.0000A" 또는 "000.0000")
+    // ※ 청약홈이 당첨가점 컬럼을 표에 추가하면서 셀이 11개로 늘어났음.
+    //    셀 개수를 고정하지 않고 첫 셀의 패턴만 체크.
+    if (cells.length < 7) continue
     const typeStr = cells[0]
     if (!/^\d{3}\.\d{4}/.test(typeStr)) continue
+
+    // 첫 매칭된 데이터 행을 디버그용 샘플로 저장
+    if (!firstSampleRow) firstSampleRow = cells
 
     rows.push({
       type: typeStr.trim(),
