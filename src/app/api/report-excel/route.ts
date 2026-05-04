@@ -280,14 +280,18 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
 }
 
 // =============== 원본 데이터 시트 ===============
+// 단지명을 매 행마다 반복 + 단지별 마지막에 합계 행 추가
+// → 일괄 다운로드와 동일한 구조 (필터링/피벗 친화적)
 function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   ws.columns = [
+    { header: '단지명', key: 'houseName', width: 30 },
     { header: '주택형(원본)', key: 'type', width: 14 },
     { header: '주택형(표시)', key: 'typeLabel', width: 12 },
     { header: '공급세대수', key: 'suply', width: 12 },
     { header: '특공_배정', key: 'spsplyAssigned', width: 12 },
     { header: '특공_청약', key: 'spsplyApplied', width: 12 },
     { header: '특공_경쟁률', key: 'spsplyRate', width: 12 },
+    { header: '1순위_배정', key: 'rank1Assigned', width: 12 },
     { header: '1순위_청약', key: 'rank1Applied', width: 12 },
     { header: '1순위_경쟁률', key: 'rank1Rate', width: 12 },
     { header: '2순위_청약', key: 'rank2Applied', width: 12 },
@@ -306,34 +310,68 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   }
   headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
 
-  // 데이터 행
+  // 표시 헬퍼: 0건은 '-' 대시
+  const dashIfZero = (n: number): number | string => (n > 0 ? n : '-')
+  const rateOrDash = (n: number, denom: number): number | string =>
+    denom > 0 && n > 0 ? Number((n / denom).toFixed(2)) : '-'
+
+  // 데이터 행 (단지명 매 행 반복)
+  let totalSuply = 0
+  let totalSpsplyAssigned = 0
+  let totalSpsplyApplied = 0
+  let totalRank1Applied = 0
+  let totalRank2Applied = 0
+
   for (const row of payload.rows) {
-    const spsplyRate = row.spsplyAssigned > 0 ? row.spsplyApplied / row.spsplyAssigned : 0
-    const rank1Rate = row.suply > 0 ? row.rank1Applied / row.suply : 0
     const totalApplied = row.rank1Applied + row.rank2Applied
-    const totalRate = row.suply > 0 ? totalApplied / row.suply : 0
     const note = determineNote(row)
 
     ws.addRow({
+      houseName: payload.houseName,
       type: row.type,
       typeLabel: row.typeLabel,
       suply: row.suply,
-      spsplyAssigned: row.spsplyAssigned || '',
-      spsplyApplied: row.spsplyApplied || '',
-      spsplyRate: row.spsplyAssigned > 0 ? Number(spsplyRate.toFixed(2)) : '',
-      rank1Applied: row.rank1Applied,
-      rank1Rate: Number(rank1Rate.toFixed(2)),
-      rank2Applied: row.rank2Applied,
-      totalApplied,
-      totalRate: Number(totalRate.toFixed(2)),
+      spsplyAssigned: row.spsplyAssigned > 0 ? row.spsplyAssigned : '-',
+      spsplyApplied: row.spsplyAssigned > 0 ? dashIfZero(row.spsplyApplied) : '-',
+      spsplyRate: row.spsplyAssigned > 0 ? rateOrDash(row.spsplyApplied, row.spsplyAssigned) : '-',
+      rank1Assigned: row.suply,
+      rank1Applied: dashIfZero(row.rank1Applied),
+      rank1Rate: rateOrDash(row.rank1Applied, row.suply),
+      rank2Applied: dashIfZero(row.rank2Applied),
+      totalApplied: dashIfZero(totalApplied),
+      totalRate: rateOrDash(totalApplied, row.suply),
       note,
     })
+
+    totalSuply += row.suply
+    totalSpsplyAssigned += row.spsplyAssigned
+    totalSpsplyApplied += row.spsplyApplied
+    totalRank1Applied += row.rank1Applied
+    totalRank2Applied += row.rank2Applied
   }
 
-  // 단지 정보 행 (마지막)
-  ws.addRow([])
-  ws.addRow(['단지명', payload.houseName])
-  ws.addRow(['보고서 작성일', payload.reportDate])
+  // 단지별 합계 행 (강조색 없음)
+  const totalAll = totalRank1Applied + totalRank2Applied
+  const summaryRow = ws.addRow({
+    houseName: payload.houseName,
+    type: '합계',
+    typeLabel: '합계',
+    suply: totalSuply,
+    spsplyAssigned: dashIfZero(totalSpsplyAssigned),
+    spsplyApplied: dashIfZero(totalSpsplyApplied),
+    spsplyRate: rateOrDash(totalSpsplyApplied, totalSpsplyAssigned),
+    rank1Assigned: totalSuply,
+    rank1Applied: dashIfZero(totalRank1Applied),
+    rank1Rate: rateOrDash(totalRank1Applied, totalSuply),
+    rank2Applied: dashIfZero(totalRank2Applied),
+    totalApplied: dashIfZero(totalAll),
+    totalRate: rateOrDash(totalAll, totalSuply),
+    note: '',
+  })
+  // 합계 행은 굵게만 표시 (강조색 없이)
+  summaryRow.font = { bold: true }
+
+  // 보고서 작성일은 다른 시트에 있으니 여기선 생략
 }
 
 // =============== POST: 페이로드 받아서 .xlsx 생성 ===============

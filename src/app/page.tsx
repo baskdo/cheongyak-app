@@ -2171,6 +2171,7 @@ export default function Home() {
   const [spsplyLoading, setSpsplyLoading] = useState(false)
   const [cmpetLoading, setCmpetLoading] = useState(false)
   const [cmpetLoaded, setCmpetLoaded] = useState(false)
+  const [downloadingBulk, setDownloadingBulk] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [cmpetRegion, setCmpetRegion] = useState('전체')
@@ -2286,6 +2287,160 @@ export default function Home() {
       else setBgRefreshing(false)
     }
   }, [CACHE_TTL_MS])
+
+  // === 경쟁률 조회 탭 일괄 엑셀 다운로드 ===
+  // 현재 필터링된 결과(filteredCmpet)를 모두 엑셀로 다운로드
+  // - 데이터 있는 단지만 (1순위 경쟁률 데이터 존재)
+  // - 단지명 매 행 반복 + 단지별 합계 행
+  const downloadBulkExcel = useCallback(async (
+    filteredItems: CompetitionItem[],
+    spsplyList: SpecialSupplyItem[],
+    region: string,
+    periodLabel: string
+  ) => {
+    setDownloadingBulk(true)
+    try {
+      // 데이터 있는 단지만 추출 + 페이로드 변환
+      const houses = filteredItems
+        .map((item) => {
+          // 1순위 데이터 가공 (CompetitionCard와 동일 로직)
+          const rank1 = item.houseTypes.filter((h) => h.rank === '1')
+          if (rank1.length === 0) return null  // 1순위 데이터 없으면 제외
+
+          // 주택형별 집계
+          const typeMap = new Map<string, {
+            type: string
+            typeLabel: string
+            suply: number
+            rank1Applied: number
+            rank2Applied: number
+          }>()
+
+          rank1.forEach((h) => {
+            const key = (h.type || '').trim()
+            if (!key) return
+            const typeLabel = key.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, () => {
+              const n = parseFloat(key)
+              const suffix = key.match(/[A-Za-z]+$/)?.[0] || ''
+              return Math.floor(n) + suffix.toUpperCase()
+            })
+            const reqCnt = parseInt(h.reqCnt || '0', 10)
+            const suply = parseInt(h.suply || '0', 10)
+
+            if (!typeMap.has(key)) {
+              typeMap.set(key, { type: key, typeLabel, suply, rank1Applied: 0, rank2Applied: 0 })
+            }
+            const entry = typeMap.get(key)!
+            if (suply > entry.suply) entry.suply = suply
+            entry.rank1Applied += reqCnt
+          })
+
+          // 2순위 누적
+          item.houseTypes.filter((h) => h.rank === '2').forEach((h) => {
+            const key = (h.type || '').trim()
+            if (!key || !typeMap.has(key)) return
+            typeMap.get(key)!.rank2Applied += parseInt(h.reqCnt || '0', 10)
+          })
+
+          if (typeMap.size === 0) return null
+
+          // 특공 매칭
+          const matchedSpsply = spsplyList.find(s => String(s.pblancNo || '').trim() === String(item.pblancNo || '').trim())
+
+          const rows = Array.from(typeMap.values())
+            .sort((a, b) => a.type.localeCompare(b.type))
+            .map((t) => {
+              let spsplyAssigned = 0
+              let spsplyApplied = 0
+              if (matchedSpsply) {
+                const ht = matchedSpsply.houseTypes.find(h => h.type.trim() === t.type.trim())
+                if (ht) {
+                  spsplyAssigned = ht.spsplyHshldco
+                  for (const cat of ht.categories) {
+                    if (cat.areaData) {
+                      spsplyApplied += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
+                    } else if (cat.instData) {
+                      spsplyApplied += cat.instData.결정
+                    }
+                  }
+                }
+              }
+              return {
+                type: t.type,
+                typeLabel: t.typeLabel,
+                suply: t.suply,
+                spsplyAssigned,
+                spsplyApplied,
+                rank1Applied: t.rank1Applied,
+                rank2Applied: t.rank2Applied,
+              }
+            })
+
+          return {
+            houseName: item.houseName,
+            region: item.region,
+            rceptBgnde: item.rceptBgnde,
+            rows,
+          }
+        })
+        .filter((h): h is NonNullable<typeof h> => h !== null)
+
+      if (houses.length === 0) {
+        alert('경쟁률 데이터가 있는 단지가 없습니다.')
+        setDownloadingBulk(false)
+        return
+      }
+
+      const today = new Date()
+      const yyyy = today.getFullYear()
+      const mm = String(today.getMonth() + 1).padStart(2, '0')
+      const dd = String(today.getDate()).padStart(2, '0')
+      const reportDate = `${yyyy}-${mm}-${dd}`
+
+      const payload = {
+        reportDate,
+        filterRegion: region,
+        filterPeriod: periodLabel,
+        houses,
+      }
+
+      const res = await fetch('/api/report-excel-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        throw new Error(`서버 응답 실패: ${res.status}`)
+      }
+
+      // 파일명 파싱
+      let filename = `경쟁률조회_${yyyy}${mm}${dd}.xlsx`
+      const cd = res.headers.get('Content-Disposition')
+      if (cd) {
+        const match = cd.match(/filename\*=UTF-8''([^;]+)/)
+        if (match) {
+          try { filename = decodeURIComponent(match[1]) } catch { /* 기본값 사용 */ }
+        }
+      }
+
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('일괄 엑셀 다운로드 실패:', e)
+      alert('엑셀 생성에 실패했습니다. 잠시 후 다시 시도해주세요.')
+    } finally {
+      setDownloadingBulk(false)
+    }
+  }, [])
+
 
   useEffect(() => {
     // 앱 진입 시 가벼운 청약공고 데이터만 로드 (최근 1000건)
@@ -2601,10 +2756,29 @@ export default function Home() {
               </div>
             </div>
 
-            <p className="text-sm text-blue-100 mb-4">
-              총 <span className="font-bold text-blue-600">{filteredCmpet.length}건</span>의 경쟁률 데이터
-              <span className="text-xs text-gray-400 ml-2">(1순위 해당지역 기준 / {formatYm(yearMonthFrom)} ~ {formatYm(yearMonthTo)})</span>
-            </p>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <p className="text-sm text-blue-100">
+                총 <span className="font-bold text-blue-600">{filteredCmpet.length}건</span>의 경쟁률 데이터
+                <span className="text-xs text-gray-400 ml-2">(1순위 해당지역 기준 / {formatYm(yearMonthFrom)} ~ {formatYm(yearMonthTo)})</span>
+              </p>
+              <button
+                onClick={() => {
+                  // 기간 라벨 만들기 (예: "2025년" / "최근1년")
+                  const periodLabel = (() => {
+                    if (periodKey === 'recent1m') return '최근1개월'
+                    if (periodKey === 'recent1y') return '최근1년'
+                    if (/^\d{4}$/.test(periodKey)) return `${periodKey}년`
+                    return periodKey
+                  })()
+                  downloadBulkExcel(filteredCmpet, spsplyItems, cmpetRegion, periodLabel)
+                }}
+                disabled={downloadingBulk || cmpetLoading || filteredCmpet.length === 0}
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors shadow"
+                title={filteredCmpet.length === 0 ? '다운로드할 데이터가 없습니다' : '필터 결과를 엑셀로 일괄 다운로드'}
+              >
+                {downloadingBulk ? '⏳ 생성 중...' : '📊 엑셀 다운로드'}
+              </button>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {cmpetLoading
