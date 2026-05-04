@@ -121,14 +121,16 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   ws.mergeCells('B2:B3')   // 세대수
   ws.mergeCells('C2:E2')   // 특별공급
   ws.mergeCells('F2:H2')   // 1순위
-  ws.mergeCells('I2:K2')   // 2순위/접수/경쟁률 (사실 분리 헤더)
+  // I, J, K는 각각 독립 컬럼 (병합 없이 위/아래 2행 헤더)
   ws.mergeCells('L2:L3')   // 비고
 
   ws.getCell('A2').value = '타입'
   ws.getCell('B2').value = '세대수'
   ws.getCell('C2').value = '특별공급'
   ws.getCell('F2').value = '1순위'
-  ws.getCell('I2').value = '2순위 / 접수 / 경쟁률'
+  ws.getCell('I2').value = '2순위'
+  ws.getCell('J2').value = '일반접수'
+  ws.getCell('K2').value = '경쟁률'
   ws.getCell('L2').value = '비고'
 
   // === 헤더 행 2 (소분류) ===
@@ -138,9 +140,9 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   ws.getCell('F3').value = '배정'
   ws.getCell('G3').value = '청약'
   ws.getCell('H3').value = '경쟁률'
-  ws.getCell('I3').value = '청약(2순위)'
-  ws.getCell('J3').value = '접수(전체)'
-  ws.getCell('K3').value = '경쟁률(전체)'
+  ws.getCell('I3').value = '청약'
+  ws.getCell('J3').value = '전체'
+  ws.getCell('K3').value = '전체'
 
   // 헤더 스타일 적용
   for (let r = 2; r <= 3; r++) {
@@ -169,20 +171,26 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     const totalRate = row.suply > 0 ? totalApplied / row.suply : 0
     const note = determineNote(row)
 
-    r.getCell(1).value = row.typeLabel + (row.type.match(/[A-Z]$/) ? '' : '')
+    // 표시 규칙: 접수가 0이거나 데이터가 없으면 '-' 대시
+    // (단, 세대수/배정 같은 "구조 정보"는 0이어도 0 그대로 표시)
+    const dashIfZero = (n: number) => (n > 0 ? n : '-')
+    const rateOrDash = (n: number, denom: number) =>
+      denom > 0 && n > 0 ? Number((n / denom).toFixed(2)) : '-'
+
+    r.getCell(1).value = row.typeLabel
     r.getCell(2).value = row.suply
-    // 특공 (배정 0이면 빈칸)
-    r.getCell(3).value = row.spsplyAssigned > 0 ? row.spsplyAssigned : null
-    r.getCell(4).value = row.spsplyAssigned > 0 ? row.spsplyApplied : null
-    r.getCell(5).value = row.spsplyAssigned > 0 ? Number(spsplyRate.toFixed(2)) : null
+    // 특공: 배정이 있어야 의미 있음
+    r.getCell(3).value = row.spsplyAssigned > 0 ? row.spsplyAssigned : '-'
+    r.getCell(4).value = row.spsplyAssigned > 0 ? dashIfZero(row.spsplyApplied) : '-'
+    r.getCell(5).value = row.spsplyAssigned > 0 ? rateOrDash(row.spsplyApplied, row.spsplyAssigned) : '-'
     // 1순위
     r.getCell(6).value = row.suply
-    r.getCell(7).value = row.rank1Applied
-    r.getCell(8).value = Number(rank1Rate.toFixed(2))
-    // 2순위 / 접수(전체) / 경쟁률(전체)
-    r.getCell(9).value = row.rank2Applied > 0 ? row.rank2Applied : null
-    r.getCell(10).value = totalApplied
-    r.getCell(11).value = Number(totalRate.toFixed(2))
+    r.getCell(7).value = dashIfZero(row.rank1Applied)
+    r.getCell(8).value = rateOrDash(row.rank1Applied, row.suply)
+    // 2순위 / 일반접수(전체) / 경쟁률(전체)
+    r.getCell(9).value = dashIfZero(row.rank2Applied)
+    r.getCell(10).value = dashIfZero(totalApplied)
+    r.getCell(11).value = rateOrDash(totalApplied, row.suply)
     // 비고
     r.getCell(12).value = note
 
@@ -211,17 +219,22 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   const totalAll = totalRank1Applied + totalRank2Applied
   const totalAllRate = totalSuply > 0 ? totalAll / totalSuply : 0
 
+  // 합계 행 표시 규칙도 동일 — 0이면 '-' 대시
+  const dashIfZeroTotal = (n: number) => (n > 0 ? n : '-')
+  const rateOrDashTotal = (n: number, denom: number) =>
+    denom > 0 && n > 0 ? Number((n / denom).toFixed(2)) : '-'
+
   totalRow.getCell(1).value = '계'
   totalRow.getCell(2).value = totalSuply
-  totalRow.getCell(3).value = totalSpsplyAssigned
-  totalRow.getCell(4).value = totalSpsplyApplied
-  totalRow.getCell(5).value = Number(totalSpsplyRate.toFixed(2))
+  totalRow.getCell(3).value = dashIfZeroTotal(totalSpsplyAssigned)
+  totalRow.getCell(4).value = dashIfZeroTotal(totalSpsplyApplied)
+  totalRow.getCell(5).value = rateOrDashTotal(totalSpsplyApplied, totalSpsplyAssigned)
   totalRow.getCell(6).value = totalSuply
-  totalRow.getCell(7).value = totalRank1Applied
-  totalRow.getCell(8).value = Number(totalRank1Rate.toFixed(2))
-  totalRow.getCell(9).value = totalRank2Applied > 0 ? totalRank2Applied : null
-  totalRow.getCell(10).value = totalAll
-  totalRow.getCell(11).value = Number(totalAllRate.toFixed(2))
+  totalRow.getCell(7).value = dashIfZeroTotal(totalRank1Applied)
+  totalRow.getCell(8).value = rateOrDashTotal(totalRank1Applied, totalSuply)
+  totalRow.getCell(9).value = dashIfZeroTotal(totalRank2Applied)
+  totalRow.getCell(10).value = dashIfZeroTotal(totalAll)
+  totalRow.getCell(11).value = rateOrDashTotal(totalAll, totalSuply)
   totalRow.getCell(12).value = ''
 
   for (let c = 1; c <= 12; c++) {
