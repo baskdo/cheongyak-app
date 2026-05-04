@@ -4,8 +4,12 @@ import { NextResponse } from 'next/server'
 // 사용 시점: 공공 API(/api/competition)에 데이터가 없는 단지에 한해 폴백 호출
 //
 // 캐시: 5분 (revalidate=300) — 같은 단지 5분 내 재호출 시 청약홈 안 두드림
+//
+// [v2] 1순위 + 2순위 + 1·2순위 총계 모두 집계 (2순위 데이터도 같은 페이지에 포함)
 
 // =============== 타입 ===============
+
+// 1순위 한 행
 type Rank1ByType = {
   type: string         // 원본 주택형 ("048.6543")
   typeLabel: string    // 표시용 ("48")
@@ -16,16 +20,47 @@ type Rank1ByType = {
   rate: number         // 1순위 경쟁률 (해당지역 기준 청약홈 표시값)
 }
 
+// 2순위 한 행 (공급세대 없음 — 1순위 미달분에 대한 추가접수)
+type Rank2ByType = {
+  type: string
+  typeLabel: string
+  hasData: boolean     // 2순위 접수가 있었는지 (false면 1순위 마감)
+  local: number        // 2순위 해당지역
+  etc: number          // 2순위 기타지역
+  total: number        // 2순위 합계
+  rate: number         // 2순위 경쟁률 (해당지역 기준 청약홈 표시값)
+}
+
+// 1+2순위 총계 한 행
+type CombinedByType = {
+  type: string
+  typeLabel: string
+  suply: number        // 공급세대수 (1순위 기준)
+  totalReq: number     // 1순위 + 2순위 총 접수건수
+  combinedRate: number // 총접수 / 1순위 공급세대 (청약홈 방식)
+}
+
 type ApplyhomeCompetitionResponse = {
   ok: boolean
   pblancNo: string
   source: 'applyhome'
-  fetchedAt: string    // ISO 시각
+  fetchedAt: string                  // ISO 시각
+  // 1순위 (기존 호환 유지)
   rank1ByType: Rank1ByType[]
   totalSuply: number
   totalLocal: number
   totalEtc: number
-  totalAll: number     // 합계 (PDF의 "총합계"와 일치해야 함)
+  totalAll: number                   // 1순위 합계
+  // 2순위 (신규)
+  rank2ByType: Rank2ByType[]
+  rank2TotalLocal: number
+  rank2TotalEtc: number
+  rank2TotalAll: number
+  hasRank2: boolean                  // 2순위 행이 1개라도 있는지
+  // 1+2순위 총계 (신규)
+  combinedByType: CombinedByType[]
+  combinedTotalReq: number           // 1순위 + 2순위 총 접수건수 합
+  combinedRate: number               // combinedTotalReq / totalSuply
   error?: string
   raw?: { rowCount: number; sampleRow?: string[] }  // 디버그용
 }
@@ -124,22 +159,29 @@ function parseCompetitionHtml(html: string): { rows: ParsedRow[]; rowCount: numb
   return { rows, rowCount: rowMatches.length, sampleRow: firstSampleRow }
 }
 
-// =============== 1순위 집계 ===============
-function aggregateRank1(parsed: ParsedRow[]): {
+// =============== 1순위 + 2순위 + 합계 집계 ===============
+function aggregateAllRanks(parsed: ParsedRow[]): {
   rank1ByType: Rank1ByType[]
   totalSuply: number
   totalLocal: number
   totalEtc: number
   totalAll: number
+  rank2ByType: Rank2ByType[]
+  rank2TotalLocal: number
+  rank2TotalEtc: number
+  rank2TotalAll: number
+  hasRank2: boolean
+  combinedByType: CombinedByType[]
+  combinedTotalReq: number
+  combinedRate: number
 } {
-  // 주택형별로 1순위 해당/기타 합산
-  const map = new Map<string, Rank1ByType>()
-
+  // === 1순위 집계 ===
+  const r1Map = new Map<string, Rank1ByType>()
   for (const row of parsed) {
     if (row.rank !== '1순위') continue
     const key = row.type
-    if (!map.has(key)) {
-      map.set(key, {
+    if (!r1Map.has(key)) {
+      r1Map.set(key, {
         type: key,
         typeLabel: makeTypeLabel(key),
         suply: row.suply,
@@ -149,28 +191,128 @@ function aggregateRank1(parsed: ParsedRow[]): {
         rate: 0,
       })
     }
-    const entry = map.get(key)!
-    if (row.suply > entry.suply) entry.suply = row.suply
-
+    const e = r1Map.get(key)!
+    if (row.suply > e.suply) e.suply = row.suply
     if (row.region === '해당지역') {
-      entry.local += row.reqCnt
-      // 청약홈 사이트 경쟁률 표시값 보존 (해당지역 행에 적힌 값)
-      if (row.rate > 0) entry.rate = row.rate
+      e.local += row.reqCnt
+      if (row.rate > 0) e.rate = row.rate
     } else if (row.region === '기타지역') {
-      entry.etc += row.reqCnt
+      e.etc += row.reqCnt
     }
   }
-
-  const rank1ByType = Array.from(map.values())
+  const rank1ByType = Array.from(r1Map.values())
     .map((e) => ({ ...e, total: e.local + e.etc }))
     .sort((a, b) => a.type.localeCompare(b.type))
 
+  // === 2순위 집계 ===
+  const r2Map = new Map<string, Rank2ByType>()
+  for (const row of parsed) {
+    if (row.rank !== '2순위') continue
+    const key = row.type
+    if (!r2Map.has(key)) {
+      r2Map.set(key, {
+        type: key,
+        typeLabel: makeTypeLabel(key),
+        hasData: true,
+        local: 0,
+        etc: 0,
+        total: 0,
+        rate: 0,
+      })
+    }
+    const e = r2Map.get(key)!
+    if (row.region === '해당지역') {
+      e.local += row.reqCnt
+      if (row.rate > 0) e.rate = row.rate
+    } else if (row.region === '기타지역') {
+      e.etc += row.reqCnt
+    }
+  }
+  // 1순위 주택형 순서를 따라가며 2순위 행 정렬 (없으면 hasData=false)
+  const rank2ByType: Rank2ByType[] = rank1ByType.map((r1) => {
+    const r2 = r2Map.get(r1.type)
+    if (r2) {
+      return { ...r2, total: r2.local + r2.etc }
+    }
+    return {
+      type: r1.type,
+      typeLabel: r1.typeLabel,
+      hasData: false,
+      local: 0,
+      etc: 0,
+      total: 0,
+      rate: 0,
+    }
+  })
+
+  // === 1순위 합계 ===
   const totalSuply = rank1ByType.reduce((s, r) => s + r.suply, 0)
   const totalLocal = rank1ByType.reduce((s, r) => s + r.local, 0)
   const totalEtc = rank1ByType.reduce((s, r) => s + r.etc, 0)
   const totalAll = totalLocal + totalEtc
 
-  return { rank1ByType, totalSuply, totalLocal, totalEtc, totalAll }
+  // === 2순위 합계 (hasData만) ===
+  const rank2TotalLocal = rank2ByType.filter(r => r.hasData).reduce((s, r) => s + r.local, 0)
+  const rank2TotalEtc = rank2ByType.filter(r => r.hasData).reduce((s, r) => s + r.etc, 0)
+  const rank2TotalAll = rank2TotalLocal + rank2TotalEtc
+  const hasRank2 = rank2ByType.some((r) => r.hasData)
+
+  // === 1+2순위 총계 (분모는 1순위 공급세대만) ===
+  const combinedByType: CombinedByType[] = rank1ByType.map((r1) => {
+    const r2 = rank2ByType.find((x) => x.type === r1.type)
+    const r2Total = r2?.hasData ? r2.total : 0
+    const totalReq = r1.total + r2Total
+    return {
+      type: r1.type,
+      typeLabel: r1.typeLabel,
+      suply: r1.suply,
+      totalReq,
+      combinedRate: r1.suply > 0 ? totalReq / r1.suply : 0,
+    }
+  })
+  const combinedTotalReq = totalAll + rank2TotalAll
+  const combinedRate = totalSuply > 0 ? combinedTotalReq / totalSuply : 0
+
+  return {
+    rank1ByType,
+    totalSuply,
+    totalLocal,
+    totalEtc,
+    totalAll,
+    rank2ByType,
+    rank2TotalLocal,
+    rank2TotalEtc,
+    rank2TotalAll,
+    hasRank2,
+    combinedByType,
+    combinedTotalReq,
+    combinedRate,
+  }
+}
+
+// =============== 빈 응답 헬퍼 ===============
+function emptyResponse(pblancNo: string, error: string, debug?: { rowCount: number; sampleRow?: string[] }): ApplyhomeCompetitionResponse {
+  return {
+    ok: false,
+    pblancNo,
+    source: 'applyhome',
+    fetchedAt: new Date().toISOString(),
+    rank1ByType: [],
+    totalSuply: 0,
+    totalLocal: 0,
+    totalEtc: 0,
+    totalAll: 0,
+    rank2ByType: [],
+    rank2TotalLocal: 0,
+    rank2TotalEtc: 0,
+    rank2TotalAll: 0,
+    hasRank2: false,
+    combinedByType: [],
+    combinedTotalReq: 0,
+    combinedRate: 0,
+    error,
+    ...(debug ? { raw: debug } : {}),
+  }
 }
 
 // =============== GET ===============
@@ -180,18 +322,10 @@ export async function GET(request: Request) {
   const debug = searchParams.get('debug') === '1'
 
   if (!pblancNo || !/^\d{6,12}$/.test(pblancNo)) {
-    return NextResponse.json<ApplyhomeCompetitionResponse>({
-      ok: false,
-      pblancNo,
-      source: 'applyhome',
-      fetchedAt: new Date().toISOString(),
-      rank1ByType: [],
-      totalSuply: 0,
-      totalLocal: 0,
-      totalEtc: 0,
-      totalAll: 0,
-      error: 'pblancNo가 유효하지 않음',
-    }, { status: 400 })
+    return NextResponse.json<ApplyhomeCompetitionResponse>(
+      emptyResponse(pblancNo, 'pblancNo가 유효하지 않음'),
+      { status: 400 }
+    )
   }
 
   const targetUrl = `https://www.applyhome.co.kr/ai/aia/selectAPTCompetitionPopup.do?houseManageNo=${pblancNo}&pblancNo=${pblancNo}`
@@ -210,39 +344,24 @@ export async function GET(request: Request) {
     })
 
     if (!res.ok) {
-      return NextResponse.json<ApplyhomeCompetitionResponse>({
-        ok: false,
-        pblancNo,
-        source: 'applyhome',
-        fetchedAt: new Date().toISOString(),
-        rank1ByType: [],
-        totalSuply: 0,
-        totalLocal: 0,
-        totalEtc: 0,
-        totalAll: 0,
-        error: `청약홈 응답 실패: ${res.status}`,
-      })
+      return NextResponse.json<ApplyhomeCompetitionResponse>(
+        emptyResponse(pblancNo, `청약홈 응답 실패: ${res.status}`)
+      )
     }
 
     const html = await res.text()
     const parsed = parseCompetitionHtml(html)
-    const agg = aggregateRank1(parsed.rows)
+    const agg = aggregateAllRanks(parsed.rows)
 
     // 1순위 데이터가 한 행도 없으면 → 청약홈도 아직 발표 전
     if (agg.rank1ByType.length === 0) {
-      return NextResponse.json<ApplyhomeCompetitionResponse>({
-        ok: false,
-        pblancNo,
-        source: 'applyhome',
-        fetchedAt: new Date().toISOString(),
-        rank1ByType: [],
-        totalSuply: 0,
-        totalLocal: 0,
-        totalEtc: 0,
-        totalAll: 0,
-        error: '청약홈에 1순위 데이터 없음 (발표 전이거나 단지 누락)',
-        ...(debug ? { raw: { rowCount: parsed.rowCount, sampleRow: parsed.sampleRow } } : {}),
-      })
+      return NextResponse.json<ApplyhomeCompetitionResponse>(
+        emptyResponse(
+          pblancNo,
+          '청약홈에 1순위 데이터 없음 (발표 전이거나 단지 누락)',
+          debug ? { rowCount: parsed.rowCount, sampleRow: parsed.sampleRow } : undefined
+        )
+      )
     }
 
     return NextResponse.json<ApplyhomeCompetitionResponse>({
@@ -254,17 +373,8 @@ export async function GET(request: Request) {
       ...(debug ? { raw: { rowCount: parsed.rowCount, sampleRow: parsed.sampleRow } } : {}),
     })
   } catch (e) {
-    return NextResponse.json<ApplyhomeCompetitionResponse>({
-      ok: false,
-      pblancNo,
-      source: 'applyhome',
-      fetchedAt: new Date().toISOString(),
-      rank1ByType: [],
-      totalSuply: 0,
-      totalLocal: 0,
-      totalEtc: 0,
-      totalAll: 0,
-      error: String(e),
-    })
+    return NextResponse.json<ApplyhomeCompetitionResponse>(
+      emptyResponse(pblancNo, String(e))
+    )
   }
 }
