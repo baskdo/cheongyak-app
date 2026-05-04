@@ -610,8 +610,9 @@ function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; speci
           // 일반 6분류 (다자녀/신혼부부/생애최초/노부모/신생아/청년)
           specialTotalReq += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
         } else if (cat.instData) {
-          // 기관추천/이전기관 - 결정 건수만 합산
-          specialTotalReq += cat.instData.결정
+          // 기관추천/이전기관 - 결정 + 예비대상자(=미결) 모두 유효 접수
+          // 청약홈도 동일 방식으로 합산함
+          specialTotalReq += cat.instData.결정 + cat.instData.미결
         }
       })
     })
@@ -1203,12 +1204,14 @@ function ThisWeekCard({
           const ht = effectiveSpecialSupply.houseTypes.find((h) => h.type.trim() === r1.type.trim())
           if (ht) {
             spsplyAssigned = ht.spsplyHshldco
-            // 카테고리별 접수 건수 합산 (해당+기타경기+기타지역 / 결정수)
+            // 카테고리별 접수 건수 합산
+            //   - 일반 6분류: 해당 + 기타경기 + 기타지역
+            //   - 기관추천/이전기관: 결정 + 예비대상자(미결) — 청약홈과 동일
             for (const cat of ht.categories) {
               if (cat.areaData) {
                 spsplyApplied += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
               } else if (cat.instData) {
-                spsplyApplied += cat.instData.결정
+                spsplyApplied += cat.instData.결정 + cat.instData.미결
               }
             }
           }
@@ -1604,7 +1607,8 @@ function ThisWeekCard({
                       return cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
                     }
                     if (cat.instData) {
-                      return cat.instData.결정
+                      // 기관추천/이전기관: 결정 + 예비대상자(미결) — 청약홈 동일
+                      return cat.instData.결정 + cat.instData.미결
                     }
                     return 0
                   })
@@ -1648,7 +1652,8 @@ function ThisWeekCard({
                         return sum + cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
                       }
                       if (cat.instData) {
-                        return sum + cat.instData.결정
+                        // 기관추천/이전기관: 결정 + 예비대상자(미결) — 청약홈 동일
+                        return sum + cat.instData.결정 + cat.instData.미결
                       }
                       return sum
                     }, 0)
@@ -2105,7 +2110,7 @@ function ThisWeekCard({
                     const cat = findCat(name)
                     if (!cat) return 0
                     if (cat.areaData) return cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
-                    if (cat.instData) return cat.instData.결정
+                    if (cat.instData) return cat.instData.결정 + cat.instData.미결
                     return 0
                   })
                   const totalReceived = receivedRow.reduce((s, n) => s + n, 0)
@@ -2147,7 +2152,7 @@ function ThisWeekCard({
                       const cat = ht.categories.find(c => c.name === name)
                       if (!cat) return sum
                       if (cat.areaData) return sum + cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
-                      if (cat.instData) return sum + cat.instData.결정
+                      if (cat.instData) return sum + cat.instData.결정 + cat.instData.미결
                       return sum
                     }, 0)
                   })
@@ -2543,7 +2548,8 @@ export default function Home() {
                     if (cat.areaData) {
                       spsplyApplied += cat.areaData.해당 + cat.areaData.기타경기 + cat.areaData.기타지역
                     } else if (cat.instData) {
-                      spsplyApplied += cat.instData.결정
+                      // 기관추천/이전기관: 결정 + 예비대상자(미결) — 청약홈 동일
+                      spsplyApplied += cat.instData.결정 + cat.instData.미결
                     }
                   }
                 }
