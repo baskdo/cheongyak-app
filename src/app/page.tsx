@@ -26,6 +26,8 @@ type ApartmentItem = {
   spsplyRceptEndde?: string
   rank1RceptBgnde?: string
   rank1RceptEndde?: string
+  rank2RceptBgnde?: string
+  rank2RceptEndde?: string
   przwnerPresnatnDe: string
   pblancDe: string
   status: '접수예정' | '접수중' | '접수마감'
@@ -1092,8 +1094,9 @@ function ThisWeekCard({
 
   const hasRank1Data = rank1ByType.length > 0
 
-  // 2순위 데이터 가공: 1순위와 동일한 구조, 단 hasData 플래그로 1순위 마감 여부 표시
-  const rank2ByType = (() => {
+  // 2순위 데이터 가공 (공공 API 기반): 1순위와 동일한 구조, 단 hasData 플래그로 1순위 마감 여부 표시
+  // — 변수명에 "Public" 접미사 = 공공 API 원본. 폴백 머지 후 최종값은 아래 rank2ByType에 들어감.
+  const rank2ByTypePublic = (() => {
     if (!competition || !hasRank1Data) return [] as Array<{
       type: string
       typeLabel: string
@@ -1147,6 +1150,55 @@ function ThisWeekCard({
         suply: r1.suply,
       }
     })
+  })()
+
+  // 공공 API에서 2순위 데이터가 비어있으면 청약홈 폴백 데이터로 대체.
+  // 발표 직후엔 청약홈만 갱신되고 공공 API는 시차로 비어있는 케이스 대응.
+  // (1순위는 공공 API에 있는데 2순위만 비어있는 상황도 포함)
+  const rank2ByType = (() => {
+    const publicHasRank2 = rank2ByTypePublic.some((r) => r.hasData)
+    if (publicHasRank2) return rank2ByTypePublic
+
+    const fallback = applyhomeData?.ok ? (applyhomeData.rank2ByType || []) : []
+    if (fallback.length === 0) return rank2ByTypePublic
+
+    // 1순위 주택형 순서대로, 폴백에서 매칭되는 2순위 머지
+    return rank1ByType.map((r1) => {
+      const f = fallback.find((x) => x.type.trim() === r1.type.trim())
+      if (f && f.hasData) {
+        const total = f.total ?? (f.local + f.etc)
+        const rate = r1.suply > 0 ? Math.round((total / r1.suply) * 100) / 100 : 0
+        return {
+          type: r1.type,
+          typeLabel: r1.typeLabel,
+          hasData: true,
+          local: f.local || 0,
+          etc: f.etc || 0,
+          total,
+          rate,
+          suply: r1.suply,
+        }
+      }
+      return {
+        type: r1.type,
+        typeLabel: r1.typeLabel,
+        hasData: false,
+        local: 0,
+        etc: 0,
+        total: 0,
+        rate: 0,
+        suply: r1.suply,
+      }
+    })
+  })()
+
+  // 2순위 출처가 청약홈 폴백인지 판정 (라벨 표시용).
+  //   - 공공 API에 2순위 행이 있었으면 false (공공 API가 정답)
+  //   - 공공 API는 비어있고 폴백에서 hasData=true 가 채워졌으면 true
+  const isRank2FromApplyhome = (() => {
+    const publicHasRank2 = rank2ByTypePublic.some((r) => r.hasData)
+    if (publicHasRank2) return false
+    return rank2ByType.some((r) => r.hasData)
   })()
 
   // 1+2순위 총계 (분모는 1순위 공급세대 — 청약홈 방식)
@@ -1341,27 +1393,39 @@ function ThisWeekCard({
   }
 
   // === 청약홈 직접 조회 자동 폴백 ===
-  // 조건: 공공 API에 1순위 데이터 없음(hasRank1Data=false)
-  //   + 1순위 접수일이 시작됐음 (= 사이트엔 데이터 있을 가능성)
-  //   + notice.id가 유효한 공고번호 형식
-  // 캐시: 서버 측 5분 (Vercel revalidate=300)
+  // 호출 조건 (둘 중 하나라도 해당하면 폴백 호출):
+  //   A) 공공 API에 1순위 데이터 없음 (hasRank1Data=false)
+  //      + 1순위 접수일이 시작됐음 (사이트엔 데이터 있을 가능성)
+  //   B) 1순위 데이터는 있지만 2순위 시작일이 도래했고 공공 API에 2순위 데이터가 없음
+  //      → 발표 직후 청약홈은 갱신됐지만 공공 API는 시차로 비어있는 케이스
   //
-  // 🔧 버그 수정 (2026-04-30):
-  //   1) 의존성을 `notice` → `notice.id`로 변경 (부모가 30초마다 새로고침해도 재실행 방지)
-  //   2) cleanup 시 setApplyhomeLoading(false) 강제 해제 (영원한 로딩 상태 방지)
-  //   3) `applyhomeData || applyhomeLoading` 가드 제거 (의존성으로 충분)
+  //   공통: notice.id가 유효한 공고번호 형식 + LH/SH 등 공공기관 청약 단지 제외
+  //   캐시: 서버 측 5분 (Vercel revalidate=300)
   useEffect(() => {
-    if (hasRank1Data) return // 공공 API에 데이터 있으면 폴백 불필요
     if (isPublicHousing(notice.hompageUrl)) return // LH/SH 단지는 청약홈에 1순위 미공개 가능성
 
     const pblancNo = String(notice.id || '').trim()
     if (!/^\d{6,12}$/.test(pblancNo)) return
 
-    // 1순위 시작일 도래 여부 확인 (시작 전이면 청약홈도 비어있음)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const rank1Date = parseDateOnly(deriveRank1Date(notice))
-    if (rank1Date && today.getTime() < rank1Date.getTime()) return
+
+    // 케이스 A: 1순위 데이터 자체가 비어있음
+    const caseA = !hasRank1Data
+    // 케이스 B: 1순위는 있지만 2순위 시작인데 2순위 데이터가 비어있음
+    const rank2StartStr = notice.rank2RceptBgnde || ''
+    const rank2Date = parseDateOnly(rank2StartStr)
+    const rank2Started = rank2Date ? today.getTime() >= rank2Date.getTime() : false
+    const caseB = hasRank1Data && rank2Started && !hasRank2Data
+
+    if (!caseA && !caseB) return
+
+    // 시작일 도래 가드:
+    //   케이스 A는 1순위 시작일 기준, 케이스 B는 이미 2순위 시작이 확인됨
+    if (caseA) {
+      const rank1Date = parseDateOnly(deriveRank1Date(notice))
+      if (rank1Date && today.getTime() < rank1Date.getTime()) return
+    }
 
     let cancelled = false
     const fetchApplyhome = async () => {
@@ -1398,7 +1462,7 @@ function ThisWeekCard({
       setApplyhomeLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasRank1Data, notice.id])
+  }, [hasRank1Data, hasRank2Data, notice.id, notice.rank2RceptBgnde])
 
   // === 청약홈 직접 조회 자동 폴백 (특별공급) ===
   // 조건: 공공 API에 특공 데이터 없음(publicHasSpsply=false)
@@ -1755,7 +1819,12 @@ function ThisWeekCard({
       {/* ===== 일반공급 1·2순위 청약접수 현황 ===== */}
       {hasRank1Data && (
         <div className="mt-4">
-          <p className="text-xs font-semibold text-rose-600 mb-2">📊 일반공급 1·2순위 청약접수 현황</p>
+          <p className="text-xs font-semibold text-rose-600 mb-2">
+            📊 일반공급 1·2순위 청약접수 현황
+            {isRank2FromApplyhome && (
+              <span className="ml-2 text-[10px] text-emerald-600 font-medium">2순위 청약홈 직접 조회</span>
+            )}
+          </p>
           <div className="overflow-x-auto">
             <table className="w-full text-[9px] sm:text-[10px] border-collapse">
               <thead>
