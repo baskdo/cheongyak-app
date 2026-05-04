@@ -1088,6 +1088,7 @@ function ThisWeekCard({
     try {
       // 페이로드 구성 — 주택형별 행 데이터
       // 특공 배정/청약은 specialSupply에서 주택형별 매칭
+      // 공고문상 공급세대수(announcedSuply)는 notice.typeDetails의 suplyHshldco
       const rows = rank1ByType.map((r1) => {
         // 특공 매칭 (주택형 원본값으로 매칭)
         let spsplyAssigned = 0
@@ -1107,6 +1108,13 @@ function ThisWeekCard({
           }
         }
 
+        // 공고문상 공급세대수 매칭 (typeDetails의 suplyHshldco — 특공+1순위 합계)
+        let announcedSuply = 0
+        if (notice.typeDetails && notice.typeDetails.length > 0) {
+          const td = notice.typeDetails.find((d) => d.type.trim() === r1.type.trim())
+          if (td) announcedSuply = td.suplyHshldco
+        }
+
         // 2순위 접수 건수
         const r2 = rank2ByType.find((x) => x.type === r1.type)
         const rank2Applied = r2?.hasData ? r2.total : 0
@@ -1114,7 +1122,8 @@ function ThisWeekCard({
         return {
           type: r1.type,
           typeLabel: r1.typeLabel,
-          suply: r1.suply,
+          announcedSuply,  // 공고문상 총 공급세대 (서버에서 0이면 spsplyAssigned+suply로 폴백)
+          suply: r1.suply,  // 1순위 모집세대 (이미 이월 반영됨)
           spsplyAssigned,
           spsplyApplied,
           rank1Applied: r1.total,
@@ -2295,6 +2304,7 @@ export default function Home() {
   const downloadBulkExcel = useCallback(async (
     filteredItems: CompetitionItem[],
     spsplyList: SpecialSupplyItem[],
+    noticeList: ApartmentItem[],
     region: string,
     periodLabel: string
   ) => {
@@ -2344,8 +2354,12 @@ export default function Home() {
 
           if (typeMap.size === 0) return null
 
-          // 특공 매칭
+          // 특공 매칭 (공고번호 기준)
           const matchedSpsply = spsplyList.find(s => String(s.pblancNo || '').trim() === String(item.pblancNo || '').trim())
+
+          // 공고문 정보(typeDetails) 매칭 — 공고문상 공급세대수(announcedSuply) 추출용
+          // ApartmentItem의 식별자는 'id' (= pblancNo와 동일 형식)
+          const matchedNotice = noticeList.find(n => String(n.id || '').trim() === String(item.pblancNo || '').trim())
 
           const rows = Array.from(typeMap.values())
             .sort((a, b) => a.type.localeCompare(b.type))
@@ -2365,9 +2379,16 @@ export default function Home() {
                   }
                 }
               }
+              // 공고문상 공급세대수 매칭 (typeDetails의 suplyHshldco)
+              let announcedSuply = 0
+              if (matchedNotice && matchedNotice.typeDetails) {
+                const td = matchedNotice.typeDetails.find(d => d.type.trim() === t.type.trim())
+                if (td) announcedSuply = td.suplyHshldco
+              }
               return {
                 type: t.type,
                 typeLabel: t.typeLabel,
+                announcedSuply,
                 suply: t.suply,
                 spsplyAssigned,
                 spsplyApplied,
@@ -2770,7 +2791,7 @@ export default function Home() {
                     if (/^\d{4}$/.test(periodKey)) return `${periodKey}년`
                     return periodKey
                   })()
-                  downloadBulkExcel(filteredCmpet, spsplyItems, cmpetRegion, periodLabel)
+                  downloadBulkExcel(filteredCmpet, spsplyItems, noticeItems, cmpetRegion, periodLabel)
                 }}
                 disabled={downloadingBulk || cmpetLoading || filteredCmpet.length === 0}
                 className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-2 rounded-lg text-xs font-semibold transition-colors shadow"

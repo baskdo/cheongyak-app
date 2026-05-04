@@ -9,7 +9,8 @@ export const runtime = 'nodejs'
 type BulkRow = {
   type: string         // 원본 ("059.9714")
   typeLabel: string    // 표시용 ("59" 또는 "59A")
-  suply: number        // 1순위 공급세대수
+  announcedSuply: number  // 공고문상 총 공급세대수 (특공+1순위)
+  suply: number        // 1순위 모집세대수 (이미 이월 반영됨)
   spsplyAssigned: number  // 특별공급 배정세대수
   spsplyApplied: number   // 특별공급 청약접수
   rank1Applied: number    // 1순위 청약접수 (해당+기타)
@@ -31,6 +32,7 @@ type BulkPayload = {
 }
 
 // =============== 비고 자동 판정 ===============
+// row.suply = 1순위 모집세대수 (이미 특공 미달분 이월됨, 청약홈 표시값)
 function determineNote(row: BulkRow): string {
   if (row.suply <= 0) return ''
   const rank1Rate = row.rank1Applied / row.suply
@@ -50,7 +52,7 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
     { header: '접수일', key: 'rceptBgnde', width: 12 },
     { header: '주택형(원본)', key: 'type', width: 14 },
     { header: '주택형(표시)', key: 'typeLabel', width: 12 },
-    { header: '공급세대수', key: 'suply', width: 12 },
+    { header: '공급세대수', key: 'announcedSuply', width: 12 },
     { header: '특공_배정', key: 'spsplyAssigned', width: 12 },
     { header: '특공_청약', key: 'spsplyApplied', width: 12 },
     { header: '특공_경쟁률', key: 'spsplyRate', width: 12 },
@@ -81,7 +83,8 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
 
   // 단지별 데이터 행 추가
   for (const house of payload.houses) {
-    let totalSuply = 0
+    let totalAnnouncedSuply = 0  // 공고문상 총 공급세대 합계
+    let totalSuply = 0           // 1순위 배정 합계
     let totalSpsplyAssigned = 0
     let totalSpsplyApplied = 0
     let totalRank1Applied = 0
@@ -89,8 +92,11 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
 
     // 주택형별 행
     for (const row of house.rows) {
+      // row.suply는 이미 1순위 배정 (청약홈 API가 특공 미달분 이월 처리)
+      // row.announcedSuply는 공고문상 총 공급세대수
       const totalApplied = row.rank1Applied + row.rank2Applied
       const note = determineNote(row)
+      const announced = row.announcedSuply > 0 ? row.announcedSuply : (row.spsplyAssigned + row.suply)
 
       ws.addRow({
         houseName: house.houseName,
@@ -98,7 +104,7 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
         rceptBgnde: house.rceptBgnde,
         type: row.type,
         typeLabel: row.typeLabel,
-        suply: row.suply,
+        announcedSuply: announced,
         spsplyAssigned: row.spsplyAssigned > 0 ? row.spsplyAssigned : '-',
         spsplyApplied: row.spsplyAssigned > 0 ? dashIfZero(row.spsplyApplied) : '-',
         spsplyRate: row.spsplyAssigned > 0 ? rateOrDash(row.spsplyApplied, row.spsplyAssigned) : '-',
@@ -111,6 +117,7 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
         note,
       })
 
+      totalAnnouncedSuply += announced
       totalSuply += row.suply
       totalSpsplyAssigned += row.spsplyAssigned
       totalSpsplyApplied += row.spsplyApplied
@@ -126,7 +133,7 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
       rceptBgnde: house.rceptBgnde,
       type: '합계',
       typeLabel: '합계',
-      suply: totalSuply,
+      announcedSuply: totalAnnouncedSuply,
       spsplyAssigned: dashIfZero(totalSpsplyAssigned),
       spsplyApplied: dashIfZero(totalSpsplyApplied),
       spsplyRate: rateOrDash(totalSpsplyApplied, totalSpsplyAssigned),

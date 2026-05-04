@@ -8,7 +8,8 @@ export const runtime = 'nodejs' // exceljs는 nodejs 런타임 필요
 type ReportRow = {
   type: string         // 원본 ("059.9714")
   typeLabel: string    // 표시용 ("59" 또는 "59A")
-  suply: number        // 1순위 공급세대수
+  announcedSuply: number  // 공고문상 총 공급세대수 (특공+1순위) - typeDetails의 suplyHshldco
+  suply: number        // 1순위 모집세대수 (이미 이월 반영됨, getAPTLttotPblancCmpet의 SUPLY_HSHLDCO)
   spsplyAssigned: number  // 특별공급 배정세대수
   spsplyApplied: number   // 특별공급 청약접수
   rank1Applied: number    // 1순위 청약접수 (해당+기타)
@@ -73,6 +74,7 @@ function applyTotalStyle(cell: ExcelJS.Cell, opts?: { highlight?: boolean }) {
 }
 
 // =============== 비고 자동 판정 ===============
+// row.suply = 1순위 모집세대수 (이미 특공 미달분 이월됨, 청약홈 표시값)
 function determineNote(row: ReportRow): string {
   if (row.suply <= 0) return ''
   const rank1Rate = row.rank1Applied / row.suply
@@ -156,7 +158,8 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
 
   // === 데이터 행 (4번째 행부터) ===
   let rowNum = 4
-  let totalSuply = 0
+  let totalAnnouncedSuply = 0  // 공고문상 총 공급세대 합계
+  let totalSuply = 0           // 1순위 배정 합계
   let totalSpsplyAssigned = 0
   let totalSpsplyApplied = 0
   let totalRank1Applied = 0
@@ -165,29 +168,29 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   for (const row of payload.rows) {
     const r = ws.getRow(rowNum)
 
-    const spsplyRate = row.spsplyAssigned > 0 ? row.spsplyApplied / row.spsplyAssigned : 0
-    const rank1Rate = row.suply > 0 ? row.rank1Applied / row.suply : 0
+    // row.suply는 이미 1순위 모집세대수 (청약홈 API가 특공 미달분 이월 처리해서 줌)
+    // row.announcedSuply는 공고문상 총 공급세대수 (= 특공 배정 + 1순위 배정)
     const totalApplied = row.rank1Applied + row.rank2Applied
-    const totalRate = row.suply > 0 ? totalApplied / row.suply : 0
     const note = determineNote(row)
+    // announcedSuply가 없으면 (특공 + 1순위)로 추정
+    const announced = row.announcedSuply > 0 ? row.announcedSuply : (row.spsplyAssigned + row.suply)
 
     // 표시 규칙: 접수가 0이거나 데이터가 없으면 '-' 대시
-    // (단, 세대수/배정 같은 "구조 정보"는 0이어도 0 그대로 표시)
     const dashIfZero = (n: number) => (n > 0 ? n : '-')
     const rateOrDash = (n: number, denom: number) =>
       denom > 0 && n > 0 ? Number((n / denom).toFixed(2)) : '-'
 
     r.getCell(1).value = row.typeLabel
-    r.getCell(2).value = row.suply
+    r.getCell(2).value = announced  // 공고문상 총 공급세대수
     // 특공: 배정이 있어야 의미 있음
     r.getCell(3).value = row.spsplyAssigned > 0 ? row.spsplyAssigned : '-'
     r.getCell(4).value = row.spsplyAssigned > 0 ? dashIfZero(row.spsplyApplied) : '-'
     r.getCell(5).value = row.spsplyAssigned > 0 ? rateOrDash(row.spsplyApplied, row.spsplyAssigned) : '-'
-    // 1순위
+    // 1순위 배정 (이미 특공 미달분 이월된 청약홈 표시값)
     r.getCell(6).value = row.suply
     r.getCell(7).value = dashIfZero(row.rank1Applied)
     r.getCell(8).value = rateOrDash(row.rank1Applied, row.suply)
-    // 2순위 / 일반접수(전체) / 경쟁률(전체)
+    // 2순위 / 일반접수(전체) / 경쟁률(전체) — 분모는 1순위 배정
     r.getCell(9).value = dashIfZero(row.rank2Applied)
     r.getCell(10).value = dashIfZero(totalApplied)
     r.getCell(11).value = rateOrDash(totalApplied, row.suply)
@@ -203,6 +206,7 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     r.height = 22
 
     // 합계 누적
+    totalAnnouncedSuply += announced
     totalSuply += row.suply
     totalSpsplyAssigned += row.spsplyAssigned
     totalSpsplyApplied += row.spsplyApplied
@@ -214,10 +218,7 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
 
   // === 합계 행 ===
   const totalRow = ws.getRow(rowNum)
-  const totalSpsplyRate = totalSpsplyAssigned > 0 ? totalSpsplyApplied / totalSpsplyAssigned : 0
-  const totalRank1Rate = totalSuply > 0 ? totalRank1Applied / totalSuply : 0
   const totalAll = totalRank1Applied + totalRank2Applied
-  const totalAllRate = totalSuply > 0 ? totalAll / totalSuply : 0
 
   // 합계 행 표시 규칙도 동일 — 0이면 '-' 대시
   const dashIfZeroTotal = (n: number) => (n > 0 ? n : '-')
@@ -225,11 +226,11 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     denom > 0 && n > 0 ? Number((n / denom).toFixed(2)) : '-'
 
   totalRow.getCell(1).value = '계'
-  totalRow.getCell(2).value = totalSuply
+  totalRow.getCell(2).value = totalAnnouncedSuply  // 공고문상 총 공급세대 합계
   totalRow.getCell(3).value = dashIfZeroTotal(totalSpsplyAssigned)
   totalRow.getCell(4).value = dashIfZeroTotal(totalSpsplyApplied)
   totalRow.getCell(5).value = rateOrDashTotal(totalSpsplyApplied, totalSpsplyAssigned)
-  totalRow.getCell(6).value = totalSuply
+  totalRow.getCell(6).value = totalSuply  // 1순위 배정 합계
   totalRow.getCell(7).value = dashIfZeroTotal(totalRank1Applied)
   totalRow.getCell(8).value = rateOrDashTotal(totalRank1Applied, totalSuply)
   totalRow.getCell(9).value = dashIfZeroTotal(totalRank2Applied)
@@ -245,9 +246,9 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   totalRow.height = 24
   rowNum++
 
-  // === 비율 행 (특공 배정 / 총 세대수) ===
+  // === 비율 행 (특공 배정 / 공고세대 합계) ===
   const ratioRow = ws.getRow(rowNum)
-  const spsplyRatio = totalSuply > 0 ? totalSpsplyAssigned / totalSuply : 0
+  const spsplyRatio = totalAnnouncedSuply > 0 ? totalSpsplyAssigned / totalAnnouncedSuply : 0
 
   ratioRow.getCell(1).value = '비율'
   ratioRow.getCell(3).value = Number((spsplyRatio * 100).toFixed(1))
@@ -287,7 +288,7 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     { header: '단지명', key: 'houseName', width: 30 },
     { header: '주택형(원본)', key: 'type', width: 14 },
     { header: '주택형(표시)', key: 'typeLabel', width: 12 },
-    { header: '공급세대수', key: 'suply', width: 12 },
+    { header: '공급세대수', key: 'announcedSuply', width: 12 },
     { header: '특공_배정', key: 'spsplyAssigned', width: 12 },
     { header: '특공_청약', key: 'spsplyApplied', width: 12 },
     { header: '특공_경쟁률', key: 'spsplyRate', width: 12 },
@@ -316,21 +317,25 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     denom > 0 && n > 0 ? Number((n / denom).toFixed(2)) : '-'
 
   // 데이터 행 (단지명 매 행 반복)
-  let totalSuply = 0
+  let totalAnnouncedSuply = 0  // 공고문상 총 공급세대 합계
+  let totalSuply = 0           // 1순위 배정 합계
   let totalSpsplyAssigned = 0
   let totalSpsplyApplied = 0
   let totalRank1Applied = 0
   let totalRank2Applied = 0
 
   for (const row of payload.rows) {
+    // row.suply는 이미 1순위 배정 (청약홈 API가 특공 미달분 이월 처리)
+    // row.announcedSuply는 공고문상 총 공급세대수
     const totalApplied = row.rank1Applied + row.rank2Applied
     const note = determineNote(row)
+    const announced = row.announcedSuply > 0 ? row.announcedSuply : (row.spsplyAssigned + row.suply)
 
     ws.addRow({
       houseName: payload.houseName,
       type: row.type,
       typeLabel: row.typeLabel,
-      suply: row.suply,
+      announcedSuply: announced,
       spsplyAssigned: row.spsplyAssigned > 0 ? row.spsplyAssigned : '-',
       spsplyApplied: row.spsplyAssigned > 0 ? dashIfZero(row.spsplyApplied) : '-',
       spsplyRate: row.spsplyAssigned > 0 ? rateOrDash(row.spsplyApplied, row.spsplyAssigned) : '-',
@@ -343,6 +348,7 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
       note,
     })
 
+    totalAnnouncedSuply += announced
     totalSuply += row.suply
     totalSpsplyAssigned += row.spsplyAssigned
     totalSpsplyApplied += row.spsplyApplied
@@ -350,13 +356,13 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     totalRank2Applied += row.rank2Applied
   }
 
-  // 단지별 합계 행 (강조색 없음)
+  // 단지별 합계 행 (강조색 없음, 굵게만)
   const totalAll = totalRank1Applied + totalRank2Applied
   const summaryRow = ws.addRow({
     houseName: payload.houseName,
     type: '합계',
     typeLabel: '합계',
-    suply: totalSuply,
+    announcedSuply: totalAnnouncedSuply,
     spsplyAssigned: dashIfZero(totalSpsplyAssigned),
     spsplyApplied: dashIfZero(totalSpsplyApplied),
     spsplyRate: rateOrDash(totalSpsplyApplied, totalSpsplyAssigned),
@@ -368,7 +374,6 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     totalRate: rateOrDash(totalAll, totalSuply),
     note: '',
   })
-  // 합계 행은 굵게만 표시 (강조색 없이)
   summaryRow.font = { bold: true }
 
   // 보고서 작성일은 다른 시트에 있으니 여기선 생략
