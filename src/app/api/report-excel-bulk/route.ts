@@ -34,16 +34,15 @@ type BulkPayload = {
 }
 
 // =============== 비고 자동 판정 ===============
-// row.suply = 1순위 모집세대수 (이미 특공 미달분 이월됨, 청약홈 표시값)
-function determineNote(row: BulkRow): string {
-  if (row.suply <= 0) return ''
-  const rank1Rate = row.rank1Applied / row.suply
-  const totalRate = (row.rank1Applied + row.rank2Applied) / row.suply
-
-  if (rank1Rate >= 1) return '1순위 마감'
-  if (totalRate >= 1) return '2순위 마감'
-  if (row.rank2Applied > 0) return '2순위 접수'
-  return '미달'
+// ⚠️ 자동 판정 비활성화 (2026-05-06)
+// 사유: 단순히 "1순위 청약 / 1순위 모집세대수 ≥ 1.0"으로 판정했으나,
+//       청약홈 실제 정책은 「해당지역 거주자 신청건수」가 「해당지역 모집세대수」에
+//       미달이면 전체 경쟁률이 1.0 이상이어도 예비미달 → 2순위 접수가 됨.
+//       공공 API/청약홈 사이트 어느 쪽도 raw 데이터에 "비고" 필드가 없어
+//       서버에서 정확한 판정이 불가능하므로 항상 빈 값을 반환.
+//       비고 컬럼은 양식 유지를 위해 남겨두며, 필요 시 수동 입력.
+function determineNote(_row: BulkRow): string {
+  return ''
 }
 
 // =============== 통합 시트 작성 ===============
