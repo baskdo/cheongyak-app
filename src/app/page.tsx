@@ -1239,11 +1239,117 @@ function ThisWeekCard({
     ? Math.round((combinedGrandTotal / rank1TotalSuply) * 100) / 100
     : 0
 
+  // 폴백 응답이 "의미 있는" 데이터인지 판단:
+  //   - ok 응답
+  //   - rank1ByType 배열에 항목이 있고
+  //   - totalAll(접수 합계) > 0
+  // 값이 모두 0이면 LH 단지나 데이터 미공개 단지이므로 표를 그리지 않음
+  // (정의 위치를 effective 변수 앞으로 이동 — effective 계산에 필요)
+  const hasApplyhomeData = applyhomeData?.ok
+    && applyhomeData.rank1ByType.length > 0
+    && applyhomeData.totalAll > 0
+
+  // === 청약홈 1순위 폴백 데이터를 공공 API와 동일한 형태로 정규화 ===
+  // 공공 API(rank1ByType)가 비어있고 청약홈 직접 조회만 성공한 경우,
+  // 그 데이터로 캡처/엑셀에서 동일하게 사용할 수 있도록 통합 변수(effective*)를 만든다.
+  // 우선순위: 공공 API → 청약홈 폴백
+  const useApplyhomeFallback = !hasRank1Data && !!hasApplyhomeData && !!applyhomeData
+  // 폴백 사용 시 정규화된 데이터 (applyhomeData → rank1ByType 형식)
+  const fallbackRank1ByType = (() => {
+    if (!useApplyhomeFallback || !applyhomeData) return [] as typeof rank1ByType
+    return applyhomeData.rank1ByType.map((r) => ({
+      type: r.type,
+      typeLabel: r.typeLabel,
+      suply: r.suply,
+      local: r.local,
+      etc: r.etc,
+      total: r.total,
+      rate: r.rate,
+    }))
+  })()
+  const fallbackRank2ByType = (() => {
+    if (!useApplyhomeFallback || !applyhomeData) return [] as typeof rank2ByType
+    // 1순위 주택형 순서를 기준으로 매칭 (공공 API와 동일한 구조 유지)
+    return fallbackRank1ByType.map((r1) => {
+      const r2 = applyhomeData.rank2ByType?.find((x) => x.type === r1.type)
+      if (r2 && r2.hasData) {
+        return {
+          type: r1.type,
+          typeLabel: r1.typeLabel,
+          hasData: true,
+          local: r2.local,
+          etc: r2.etc,
+          total: r2.total,
+          rate: r2.rate,
+          suply: r1.suply,
+        }
+      }
+      return {
+        type: r1.type,
+        typeLabel: r1.typeLabel,
+        hasData: false,
+        local: 0,
+        etc: 0,
+        total: 0,
+        rate: 0,
+        suply: r1.suply,
+      }
+    })
+  })()
+  const fallbackCombinedByType = (() => {
+    if (!useApplyhomeFallback || !applyhomeData) return [] as typeof combinedByType
+    return fallbackRank1ByType.map((r1) => {
+      const r2 = fallbackRank2ByType.find((x) => x.type === r1.type)
+      const r2Total = r2?.hasData ? r2.total : 0
+      const totalReq = r1.total + r2Total
+      return {
+        type: r1.type,
+        typeLabel: r1.typeLabel,
+        suply: r1.suply,
+        totalReq,
+        combinedRate: r1.suply > 0 ? Math.round((totalReq / r1.suply) * 100) / 100 : 0,
+      }
+    })
+  })()
+
+  // === 통합 effective 변수 (캡처/엑셀이 공통으로 사용) ===
+  // 공공 API가 있으면 그것을, 없으면 청약홈 폴백을 사용. 둘 다 없으면 빈 배열.
+  const effectiveRank1ByType = hasRank1Data ? rank1ByType : fallbackRank1ByType
+  const effectiveRank2ByType = hasRank1Data ? rank2ByType : fallbackRank2ByType
+  const effectiveCombinedByType = hasRank1Data ? combinedByType : fallbackCombinedByType
+  const effectiveHasRank1 = hasRank1Data || useApplyhomeFallback
+  const effectiveHasRank2 = hasRank1Data
+    ? hasRank2Data
+    : (useApplyhomeFallback && !!applyhomeData?.hasRank2)
+
+  // 합계 (effective 기준)
+  const effectiveRank1TotalSuply = hasRank1Data
+    ? rank1TotalSuply
+    : (applyhomeData?.totalSuply ?? 0)
+  const effectiveRank1TotalLocal = hasRank1Data
+    ? rank1TotalLocal
+    : (applyhomeData?.totalLocal ?? 0)
+  const effectiveRank1TotalEtc = hasRank1Data
+    ? rank1TotalEtc
+    : (applyhomeData?.totalEtc ?? 0)
+  const effectiveRank2TotalLocal = hasRank1Data
+    ? rank2TotalLocal
+    : (applyhomeData?.rank2TotalLocal ?? 0)
+  const effectiveRank2TotalEtc = hasRank1Data
+    ? rank2TotalEtc
+    : (applyhomeData?.rank2TotalEtc ?? 0)
+  const effectiveRank1GrandTotal = effectiveRank1TotalLocal + effectiveRank1TotalEtc
+  const effectiveRank2GrandTotal = effectiveRank2TotalLocal + effectiveRank2TotalEtc
+  const effectiveCombinedGrandTotal = effectiveRank1GrandTotal + effectiveRank2GrandTotal
+  const effectiveCombinedAvgRate = effectiveRank1TotalSuply > 0
+    ? Math.round((effectiveCombinedGrandTotal / effectiveRank1TotalSuply) * 100) / 100
+    : 0
+
   // === 보고서 엑셀 다운로드 ===
   // 청약접수결과 보고서 양식의 .xlsx를 서버에서 생성해 받음
   // 활성화 조건: 특공 또는 1순위 중 하나라도 데이터 있으면 OK (둘 다 비어있을 때만 비활성)
   const downloadReportExcel = async () => {
-    if (!hasSpsplyData && !hasRank1Data) {
+    if (!hasSpsplyData && !effectiveHasRank1) {
       alert('특별공급/1순위 데이터가 아직 없어 보고서를 생성할 수 없습니다.')
       return
     }
@@ -1257,6 +1363,7 @@ function ThisWeekCard({
       //   - 두 데이터에 모두 등장하는 주택형은 한 번만 행으로 출력
       // 특공 배정/청약은 effectiveSpecialSupply에서 주택형별 매칭
       //   → 공공 API 데이터가 없으면 청약홈 폴백 데이터를 사용 (1순위와 동일 패턴)
+      // 1순위/2순위는 effectiveRank1ByType/effectiveRank2ByType 사용 (공공 API ↔ 청약홈 폴백 통합)
       // 공고문상 공급세대수(announcedSuply)는 notice.typeDetails의 suplyHshldco
 
       // 주택형 합집합 만들기 (정렬 안정화 위해 typeDetails 순서 우선 → 1순위 → 특공)
@@ -1272,16 +1379,16 @@ function ThisWeekCard({
       if (notice.typeDetails && notice.typeDetails.length > 0) {
         notice.typeDetails.forEach((td) => addType(td.type))
       }
-      // 1순위 발표분 합치기
-      rank1ByType.forEach((r1) => addType(r1.type))
+      // 1순위 발표분 합치기 (공공 API + 청약홈 폴백 통합)
+      effectiveRank1ByType.forEach((r1) => addType(r1.type))
       // 특공 데이터에만 있는 주택형도 합치기
       if (effectiveSpecialSupply) {
         effectiveSpecialSupply.houseTypes.forEach((ht) => addType(ht.type))
       }
 
       const rows = typeKeys.map((typeKey) => {
-        // 1순위 매칭
-        const r1 = rank1ByType.find((x) => x.type.trim() === typeKey)
+        // 1순위 매칭 (effective — 공공 API 우선, 없으면 청약홈 폴백)
+        const r1 = effectiveRank1ByType.find((x) => x.type.trim() === typeKey)
         // 특공 매칭
         let spsplyAssigned = 0
         let spsplyApplied = 0
@@ -1320,8 +1427,8 @@ function ThisWeekCard({
           typeLabel = m ? `${parseInt(m[1], 10)}${(m[2] || '').toUpperCase()}` : typeKey
         }
 
-        // 2순위 접수 건수
-        const r2 = rank2ByType.find((x) => x.type.trim() === typeKey)
+        // 2순위 접수 건수 (effective)
+        const r2 = effectiveRank2ByType.find((x) => x.type.trim() === typeKey)
         const rank2Applied = r2?.hasData ? r2.total : 0
 
         return {
@@ -1522,14 +1629,7 @@ function ThisWeekCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publicHasSpsply, notice.id])
 
-  // 폴백 응답이 "의미 있는" 데이터인지 판단:
-  //   - ok 응답
-  //   - rank1ByType 배열에 항목이 있고
-  //   - totalAll(접수 합계) > 0
-  // 값이 모두 0이면 LH 단지나 데이터 미공개 단지이므로 표를 그리지 않음
-  const hasApplyhomeData = applyhomeData?.ok
-    && applyhomeData.rank1ByType.length > 0
-    && applyhomeData.totalAll > 0
+  // hasApplyhomeData 정의는 effective 변수 계산을 위해 위쪽(합계 행 직후)으로 이동됨
 
   // 단지 자체가 공공기관 청약(LH/SH 등) 사이트로 연결되는지
   const isPublicHousingNotice = isPublicHousing(notice.hompageUrl)
@@ -1656,17 +1756,17 @@ function ThisWeekCard({
                   </button>
                   <button
                     onClick={() => downloadCapture('rank1')}
-                    disabled={capturing !== null || downloadingExcel || !hasRank1Data}
+                    disabled={capturing !== null || downloadingExcel || !effectiveHasRank1}
                     className="flex items-center justify-center gap-1 bg-white border border-rose-200 text-rose-700 rounded-lg py-2 text-xs font-semibold hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={!hasRank1Data ? '1순위 데이터 없음' : ''}
+                    title={!effectiveHasRank1 ? '1순위 데이터 없음' : ''}
                   >
                     {capturing === 'rank1' ? '⏳ 생성 중...' : '📷 1·2순위 스샷'}
                   </button>
                   <button
                     onClick={() => downloadReportExcel()}
-                    disabled={capturing !== null || downloadingExcel || (!hasSpsplyData && !hasRank1Data)}
+                    disabled={capturing !== null || downloadingExcel || (!hasSpsplyData && !effectiveHasRank1)}
                     className="flex items-center justify-center gap-1 bg-white border border-blue-200 text-blue-700 rounded-lg py-2 text-xs font-semibold hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={(!hasSpsplyData && !hasRank1Data) ? '특공/1순위 데이터 없음' : '보고서 양식 엑셀 다운로드'}
+                    title={(!hasSpsplyData && !effectiveHasRank1) ? '특공/1순위 데이터 없음' : '보고서 양식 엑셀 다운로드'}
                   >
                     {downloadingExcel ? '⏳ 생성 중...' : '📊 보고서 엑셀'}
                   </button>
@@ -2310,7 +2410,8 @@ function ThisWeekCard({
         )}
 
         {/* === 1순위 캡처용 === */}
-        {hasRank1Data && (
+        {/* 공공 API(rank1ByType)가 있으면 그것을, 없고 청약홈 폴백이 있으면 폴백을 사용 */}
+        {effectiveHasRank1 && (
           <div ref={captureRank1Ref} style={{ width: '760px', padding: '32px 24px 24px 24px', backgroundColor: '#ffffff', fontFamily: '"Noto Sans KR", sans-serif', boxSizing: 'border-box' }}>
             {/* 헤더: 단지명 + 지역/주소 */}
             <div style={{ borderBottom: '2px solid #e11d48', paddingBottom: '12px', marginBottom: '16px' }}>
@@ -2354,9 +2455,9 @@ function ThisWeekCard({
                 </tr>
               </thead>
               <tbody>
-                {rank1ByType.flatMap((r1) => {
-                  const r2 = rank2ByType.find((x) => x.type === r1.type)
-                  const combined = combinedByType.find((x) => x.type === r1.type)
+                {effectiveRank1ByType.flatMap((r1) => {
+                  const r2 = effectiveRank2ByType.find((x) => x.type === r1.type)
+                  const combined = effectiveCombinedByType.find((x) => x.type === r1.type)
                   const r2HasData = r2?.hasData ?? false
                   return [
                     /* 1순위 행 */
@@ -2394,20 +2495,20 @@ function ThisWeekCard({
                 {/* 합계 행 — 단일 행 (1+2순위 합산값만 표시, html2canvas rowSpan 호환성 개선) */}
                 <tr style={{ backgroundColor: '#fef3c7', borderTop: '2px solid #fbbf24' }}>
                   <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>합계</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{rank1TotalSuply.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{effectiveRank1TotalSuply.toLocaleString()}</td>
                   <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', color: '#374151', fontWeight: 600, fontSize: '11px', backgroundColor: '#fde68a', verticalAlign: 'middle' }}>1+2순위</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(rank1TotalLocal + (hasRank2Data ? rank2TotalLocal : 0)).toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(rank1TotalEtc + (hasRank2Data ? rank2TotalEtc : 0)).toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', verticalAlign: 'middle' }}>{combinedGrandTotal.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: combinedAvgRate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
-                    {rank1TotalSuply > 0
-                      ? (combinedAvgRate < 1 ? `미달(${combinedAvgRate.toFixed(2)})` : `${combinedAvgRate.toFixed(2)} : 1`)
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(effectiveRank1TotalLocal + (effectiveHasRank2 ? effectiveRank2TotalLocal : 0)).toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(effectiveRank1TotalEtc + (effectiveHasRank2 ? effectiveRank2TotalEtc : 0)).toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', verticalAlign: 'middle' }}>{effectiveCombinedGrandTotal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: effectiveCombinedAvgRate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
+                    {effectiveRank1TotalSuply > 0
+                      ? (effectiveCombinedAvgRate < 1 ? `미달(${effectiveCombinedAvgRate.toFixed(2)})` : `${effectiveCombinedAvgRate.toFixed(2)} : 1`)
                       : '-'}
                   </td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>{combinedGrandTotal.toLocaleString()}</td>
-                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: combinedAvgRate >= 1 ? '#b91c1c' : '#6b7280', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>
-                    {rank1TotalSuply > 0
-                      ? (combinedAvgRate < 1 ? `미달(${combinedAvgRate.toFixed(2)})` : `${combinedAvgRate.toFixed(2)} : 1`)
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>{effectiveCombinedGrandTotal.toLocaleString()}</td>
+                  <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: effectiveCombinedAvgRate >= 1 ? '#b91c1c' : '#6b7280', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>
+                    {effectiveRank1TotalSuply > 0
+                      ? (effectiveCombinedAvgRate < 1 ? `미달(${effectiveCombinedAvgRate.toFixed(2)})` : `${effectiveCombinedAvgRate.toFixed(2)} : 1`)
                       : '-'}
                   </td>
                 </tr>
@@ -2416,7 +2517,7 @@ function ThisWeekCard({
 
             <div style={{ marginTop: '8px', fontSize: '10px', color: '#9ca3af' }}>
               ※ 총 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미
-              <br />출처: 청약홈 (한국부동산원)
+              <br />출처: 청약홈 (한국부동산원){useApplyhomeFallback ? ' · 청약홈 사이트 직접 조회' : ''}
             </div>
           </div>
         )}
