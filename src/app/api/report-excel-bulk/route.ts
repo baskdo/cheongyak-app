@@ -93,14 +93,14 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
 
     // 주택형별 행
     for (const row of house.rows) {
-      // row.suply는 이미 1순위 배정 (청약홈 API가 특공 미달분 이월 처리)
-      // row.announcedSuply는 공고문상 일반분양 세대수
-      // → 총 공급세대수 = 일반분양 + 특공배정
+      // 🔧 F열(공급세대수) = 청약홈 사이트의 "주택형별 공급세대수(계)"
+      // apartments_route.ts에서 이미 (일반공급 + 특별공급) 합산된 총공급세대수로 옴
+      // 폴백: 0이면 (구버전 캐시 등) row.suply + row.spsplyAssigned로 추정
       const totalApplied = row.rank1Applied + row.rank2Applied
       const note = determineNote(row)
-      const announced = (row.announcedSuply > 0 || row.spsplyAssigned > 0)
-        ? row.announcedSuply + row.spsplyAssigned
-        : row.suply
+      const announced = row.announcedSuply > 0
+        ? row.announcedSuply
+        : row.suply + row.spsplyAssigned
 
       ws.addRow({
         houseName: house.houseName,

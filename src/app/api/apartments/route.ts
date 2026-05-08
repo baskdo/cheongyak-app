@@ -157,7 +157,13 @@ export async function GET(request: Request) {
       const ty = String(t['HOUSE_TY'] || '').trim()
       const supplyArea = parseFloat(String(t['SUPLY_AR'] || '0'))
       const topAmount = parseInt(String(t['LTTOT_TOP_AMOUNT'] || '0'))
-      const suplyHshldco = parseInt(String(t['SUPLY_HSHLDCO'] || '0'))
+      // 🔧 청약홈 사이트의 "공급세대수(계)" = 일반공급 + 특별공급 합계
+      //   - SUPLY_HSHLDCO   = 일반공급 세대수 (예: 49)
+      //   - SPSPLY_HSHLDCO  = 특별공급 세대수 (예: 56)
+      //   → suplyHshldco = 두 값의 합 (예: 105) — 청약홈 사이트 표시값과 100% 일치
+      const gnrlHshldco = parseInt(String(t['SUPLY_HSHLDCO'] || '0')) || 0
+      const spsplyHshldco = parseInt(String(t['SPSPLY_HSHLDCO'] || '0')) || 0
+      const suplyHshldco = gnrlHshldco + spsplyHshldco
 
       const typeLabel = ty.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, _num, suffix) => {
         return Math.floor(parseFloat(ty)) + String(suffix).toUpperCase()

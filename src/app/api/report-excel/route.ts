@@ -170,15 +170,14 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   for (const row of payload.rows) {
     const r = ws.getRow(rowNum)
 
-    // row.suply는 이미 1순위 모집세대수 (청약홈 API가 특공 미달분 이월 처리해서 줌)
-    // row.announcedSuply는 공고문상 일반분양 세대수 (특공 제외)
-    // → 총 공급세대수 = 일반분양 + 특공배정
+    // 🔧 F열(공급세대수) = 청약홈 사이트의 "주택형별 공급세대수(계)"
+    // apartments_route.ts에서 이미 (일반공급 + 특별공급) 합산된 총공급세대수로 옴
+    // 폴백: 0이면 (구버전 캐시 등) row.suply + row.spsplyAssigned로 추정
     const totalApplied = row.rank1Applied + row.rank2Applied
     const note = determineNote(row)
-    // 총 공급세대수 = 일반분양 + 특공배정 (둘 다 0이면 1순위 모집을 폴백)
-    const announced = (row.announcedSuply > 0 || row.spsplyAssigned > 0)
-      ? row.announcedSuply + row.spsplyAssigned
-      : row.suply
+    const announced = row.announcedSuply > 0
+      ? row.announcedSuply
+      : row.suply + row.spsplyAssigned
 
     // 표시 규칙: 접수가 0이거나 데이터가 없으면 '-' 대시
     const dashIfZero = (n: number) => (n > 0 ? n : '-')
@@ -330,14 +329,14 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
   let totalRank2Applied = 0
 
   for (const row of payload.rows) {
-    // row.suply는 이미 1순위 배정 (청약홈 API가 특공 미달분 이월 처리)
-    // row.announcedSuply는 공고문상 일반분양 세대수
-    // → 총 공급세대수 = 일반분양 + 특공배정
+    // 🔧 F열(공급세대수) = 청약홈 사이트의 "주택형별 공급세대수(계)"
+    // apartments_route.ts에서 이미 (일반공급 + 특별공급) 합산된 총공급세대수로 옴
+    // 폴백: 0이면 row.suply + row.spsplyAssigned로 추정
     const totalApplied = row.rank1Applied + row.rank2Applied
     const note = determineNote(row)
-    const announced = (row.announcedSuply > 0 || row.spsplyAssigned > 0)
-      ? row.announcedSuply + row.spsplyAssigned
-      : row.suply
+    const announced = row.announcedSuply > 0
+      ? row.announcedSuply
+      : row.suply + row.spsplyAssigned
 
     ws.addRow({
       houseName: payload.houseName,
