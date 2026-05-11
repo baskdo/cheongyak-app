@@ -8,6 +8,15 @@ import { NextResponse } from 'next/server'
 // 1순위 폴백(/api/applyhome-competition)과 완전히 동일한 호출/응답 패턴.
 //   - 단건 전용 (?pblancNo=...)
 //   - 응답: { ok, pblancNo, source: 'applyhome-spsply', fetchedAt, houseTypes:[...], error?, raw? }
+//
+// 🔧 버그 수정 (2026-05-11):
+//   기존: 한 주택형당 4행(배정/해당/기타경기/기타지역) 고정 가정 → i += 4 로 건너뜀
+//   문제: 경기도 단지가 아닌 경우 청약홈은 "기타경기" 행을 렌더링하지 않아 3행 구조가 됨
+//         → 4행씩 자르면 다음 주택형의 배정 행이 이전 주택형의 기타지역 행으로 잘못 합산되고
+//           "배정세대수"가 다음 위치로 밀려나 i 인덱스가 어긋나며 주택형이 누락됨
+//         (상주북천 하늘채 파크원: 5개 주택형 중 3개만 표시, 합계 206→130)
+//   수정: "배정세대수" 행의 위치를 먼저 모두 찾은 뒤, 인접한 두 배정행 사이를 하나의 블록으로 처리
+//         지역행은 위치 인덱스가 아니라 라벨("해당지역"/"기타경기"/"기타지역")로 검색
 
 // =============== 응답 타입 ===============
 
@@ -179,25 +188,49 @@ function buildGrid(rows: CellInfo[][]): string[][] {
 }
 
 /**
- * 격자에서 4행 블록(배정/해당/기타경기/기타지역)을 모두 추출하여 HouseTypeRow 배열로 변환.
- * "총합계" 행은 무시.
+ * 격자에서 주택형 블록을 모두 추출하여 HouseTypeRow 배열로 변환.
+ *
+ * 청약홈 특공 표는 단지 소재지에 따라 한 주택형당 행 개수가 가변적임:
+ *   - 경기도 단지: 4행 (배정세대수 / 해당지역 / 기타경기 / 기타지역)
+ *   - 그 외 지역: 3행 (배정세대수 / 해당지역 / 기타지역)
+ *
+ * 따라서 행 개수를 4 고정으로 가정하지 않고,
+ * "배정세대수" 행의 위치를 먼저 모두 찾은 뒤 인접한 두 배정행 사이를 하나의 블록으로 처리한다.
+ * 또한 지역행은 위치 인덱스가 아니라 라벨로 검색하여 단지마다 다른 행 구성에 안전하게 대응.
+ * "총합계" 행은 주택형 정규식(\d{3}\.\d{4})으로 자동 제외.
  */
 function gridToHouseTypes(grid: string[][]): { houseTypes: HouseTypeRow[]; subscrptResultNm: string } {
   const out: HouseTypeRow[] = []
   let firstResultNm = ''
 
-  let i = 0
-  while (i + 3 < grid.length) {
-    const block = grid.slice(i, i + 4)
-    // 배정행 식별: 3번째 컬럼이 "배정세대수"
-    if (block[0][2] !== '배정세대수') {
-      i += 1
-      continue
-    }
+  // 1) "배정세대수" 행의 인덱스만 모은다
+  const assignIdxs: number[] = []
+  for (let r = 0; r < grid.length; r++) {
+    if (grid[r][2] === '배정세대수') assignIdxs.push(r)
+  }
+
+  // 2) 인접한 두 배정행 사이를 하나의 블록으로 잡는다 (3행이든 4행이든 무관)
+  for (let k = 0; k < assignIdxs.length; k++) {
+    const start = assignIdxs[k]
+    const end = k + 1 < assignIdxs.length ? assignIdxs[k + 1] : grid.length
+    const block = grid.slice(start, end)
+    if (block.length < 2) continue   // 최소 배정 + 해당지역은 있어야
 
     const ty = block[0][0]
+    // 총합계 행 등 비정상 행 제외
+    if (!/^\d{3}\.\d{4}/.test(ty)) continue
+
     const suply = parseInt0(block[0][1])
     if (!firstResultNm) firstResultNm = block[0][11] || ''
+
+    // 지역행을 라벨로 검색 (위치 고정 X — 단지마다 행 개수가 다름)
+    const findRow = (label: string) => block.find((row) => row[2] === label)
+    const haedang = findRow('해당지역')
+    const ggOther = findRow('기타경기')   // 경기도 단지의 다자녀에만 존재
+    const etcAr   = findRow('기타지역')
+
+    const getNum = (row: string[] | undefined, col: number) =>
+      row ? parseInt0(row[col]) : 0
 
     // 배정 8개 (idx 3~10)
     const assigned = {
@@ -211,29 +244,27 @@ function gridToHouseTypes(grid: string[][]): { houseTypes: HouseTypeRow[]; subsc
       이전기관: parseInt0(block[0][10]),
     }
 
-    // 해당지역 (block[1])
     const crsparea = {
-      다자녀:   parseInt0(block[1][3]),
-      신혼부부: parseInt0(block[1][4]),
-      생애최초: parseInt0(block[1][5]),
-      청년:     parseInt0(block[1][6]),
-      노부모:   parseInt0(block[1][7]),
-      신생아:   parseInt0(block[1][8]),
+      다자녀:   getNum(haedang, 3),
+      신혼부부: getNum(haedang, 4),
+      생애최초: getNum(haedang, 5),
+      청년:     getNum(haedang, 6),
+      노부모:   getNum(haedang, 7),
+      신생아:   getNum(haedang, 8),
     }
-    const insttRecom = parseInstText(block[1][9])    // "3(0)" 형식
-    const transrInst = parseInstText(block[1][10])
+    const insttRecom = parseInstText(haedang ? haedang[9]  : '')
+    const transrInst = parseInstText(haedang ? haedang[10] : '')
 
-    // 기타경기 (block[2]) - 다자녀(idx 3)만 값, 그 외 readon
-    const ctprvnMnych = parseInt0(block[2][3])
+    // 기타경기 (다자녀 idx 3만 의미 있음; 그 외 카테고리는 0)
+    const ctprvnMnych = getNum(ggOther, 3)
 
-    // 기타지역 (block[3])
     const etcArea = {
-      다자녀:   parseInt0(block[3][3]),
-      신혼부부: parseInt0(block[3][4]),
-      생애최초: parseInt0(block[3][5]),
-      청년:     parseInt0(block[3][6]),
-      노부모:   parseInt0(block[3][7]),
-      신생아:   parseInt0(block[3][8]),
+      다자녀:   getNum(etcAr, 3),
+      신혼부부: getNum(etcAr, 4),
+      생애최초: getNum(etcAr, 5),
+      청년:     getNum(etcAr, 6),
+      노부모:   getNum(etcAr, 7),
+      신생아:   getNum(etcAr, 8),
     }
 
     // 일반 6분류 (배정 > 0 인 것만 포함)
@@ -299,8 +330,6 @@ function gridToHouseTypes(grid: string[][]): { houseTypes: HouseTypeRow[]; subsc
       totalAssigned,
       totalApplied,
     })
-
-    i += 4
   }
 
   return { houseTypes: out, subscrptResultNm: firstResultNm }
