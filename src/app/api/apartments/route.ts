@@ -127,16 +127,29 @@ export async function GET(request: Request) {
     // competition API는 ODCLOUD_API_KEY(=API_KEY2) 또는 API_KEY 둘 중 사용 가능
     const cmpetKey = process.env.ODCLOUD_API_KEY || process.env.API_KEY2 || apiKey
 
+    // 🚀 [청약공고] 탭(limit=recent) 첫 화면 로딩 최적화:
+    //   - 공고상세: 1페이지만 (최신 1000건)
+    //   - 주택형/분양가: 1페이지만 (최신 1000건) — 최근 단지 분양가 표시용으로 충분
+    //   - 경쟁률: 호출 안 함 (recent에선 5만 건+ 전체를 끌어올 이유 없음 → 시간 기반 폴백)
+    //   풀로딩(limit 없음)일 땐 기존대로 전체 페이징.
+    const isRecent = limit === 'recent'
+
     const [apartments, types, cmpetRows] = await Promise.all([
-      limit === 'recent'
+      isRecent
         ? fetchAllPages<ApartmentRow>('getAPTLttotPblancDetail', apiKey, fresh, 1)
         : fetchAllPages<ApartmentRow>('getAPTLttotPblancDetail', apiKey, fresh),
-      fetchAllPages<TypeRow>('getAPTLttotPblancMdl', apiKey, fresh),
+      isRecent
+        ? fetchAllPages<TypeRow>('getAPTLttotPblancMdl', apiKey, fresh, 1)
+        : fetchAllPages<TypeRow>('getAPTLttotPblancMdl', apiKey, fresh),
       // 1순위 마감 판정용 (실패해도 무시 — 시간 기반 폴백)
-      fetchAllPages<CmpetRow>('getAPTLttotPblancCmpet', cmpetKey, fresh, 30, COMPETITION_BASE_URL).catch((e) => {
-        console.error('[apartments] competition fetch failed (will fallback to time-based):', e)
-        return [] as CmpetRow[]
-      }),
+      // recent 요청에선 경쟁률 전체(5만 건+)를 건너뛰어 첫 화면 대기 시간을 크게 줄인다.
+      // 정확한 1순위 마감 여부는 [경쟁률 조회]/[접수현황 조회] 탭에서 별도 확인.
+      isRecent
+        ? Promise.resolve([] as CmpetRow[])
+        : fetchAllPages<CmpetRow>('getAPTLttotPblancCmpet', cmpetKey, fresh, 30, COMPETITION_BASE_URL).catch((e) => {
+            console.error('[apartments] competition fetch failed (will fallback to time-based):', e)
+            return [] as CmpetRow[]
+          }),
     ])
 
     // 1순위 결과 맵 (pblancNo → 'sold_out' | 'has_short' | 'no_data')

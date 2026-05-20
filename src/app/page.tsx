@@ -3069,17 +3069,16 @@ export default function Home() {
     setPeriodKey(range.key)
     setYearMonthFrom(range.from)
     setYearMonthTo(range.to)
-    // 앱 시작 시 백그라운드 프리페치 (모든 탭에 필요한 데이터를 미리 로딩)
-    // 1단계: 2초 뒤 — 가벼운 데이터 (특공, 경쟁률)
-    setTimeout(() => {
+    // 🚀 프리페치 지연: 첫 화면([청약공고])이 충분히 뜬 뒤 한 번만 조용히 당겨옴.
+    //   - 경쟁률(8.7s)·특공(6.6s)은 무거우므로 첫 화면과 동시에 돌리지 않는다.
+    //   - 9초 뒤 한 번만: 사용자가 [경쟁률 조회]/[접수현황 조회]를 누를 때쯤 캐시 준비.
+    //   - 각 탭은 진입 시 자체 로딩 useEffect가 있으므로, 프리페치 실패해도 문제없음.
+    const prefetchTimer = setTimeout(() => {
+      fetchSpecialSupply(false, true)                       // 캐시 활용 + background
       fetchCompetition('', '전체', range.from, range.to, true) // background=true
-      fetchSpecialSupply(false, true) // 캐시 활용 + background
-    }, 2000)
-    // 2단계: 5초 뒤 — 무거운 데이터 (청약공고 풀로딩)
-    // 사용자가 [접수현황 조회]에서 "12개월/연도별" 선택 시 즉시 보여주기 위함
-    setTimeout(() => {
-      fetchNotice(false, true) // background=true
-    }, 5000)
+      fetchNotice(false, true)                              // 풀 공고(연도별 탭용) background
+    }, 9000)
+    return () => clearTimeout(prefetchTimer)
   }, [])
 
   useEffect(() => {

@@ -320,7 +320,7 @@ function specialAggToRecord(agg: SpecialAgg): Record<string, string> | undefined
   return hasAny ? out : undefined
 }
 
-async function fetchPaged<ApiType>(endpoint: string, fresh = false): Promise<ApiType[]> {
+async function fetchPaged<ApiType>(endpoint: string, fresh = false, maxPage = 60): Promise<ApiType[]> {
   const key = process.env.ODCLOUD_API_KEY
   if (!key) {
     throw new Error('ODCLOUD_API_KEY not set')
@@ -331,7 +331,8 @@ async function fetchPaged<ApiType>(endpoint: string, fresh = false): Promise<Api
   let done = false
   const rows: ApiType[] = []
 
-  while (!done) {
+  // maxPage = 안전장치 (경쟁률 데이터는 과거치 누적으로 계속 늘어남 → 무한 페이징 방지)
+  while (!done && page <= maxPage) {
     const url =
       `https://api.odcloud.kr/api/${endpoint}` +
       `?serviceKey=${encodeURIComponent(key)}` +
