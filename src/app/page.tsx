@@ -1233,14 +1233,18 @@ function ThisWeekCard({
     : 0
   const hasRank2Data = rank2ByType.some((r) => r.hasData)
 
-  // 2순위 접수일 도래 여부 — 시작일 전이면 1+2순위 컬럼/행을 화면에서 숨겨
-  // "2순위 0건 접수"로 오해되는 것을 방지
+  // 1+2순위 컬럼/행 표시 여부 — 화면 표기 전용 플래그.
+  // 청약홈과 동일하게: "2순위 접수일 도래" + "실제 2순위 접수 발생(hasRank2Data)"
+  // 두 조건을 모두 만족할 때만 1+2순위로 표기한다.
+  //   - 전 타입 1순위 마감(2순위 0건) → hasRank2Data=false → '1순위 청약접수 현황'으로 표기
+  //   - 2순위 접수일이 됐어도 아직 0건이면 1순위로 표기, 1건이라도 들어오면 즉시 1+2순위 전환
   const _today = new Date()
   _today.setHours(0, 0, 0, 0)
   const _rank2Date = parseDateOnly(notice.rank2RceptBgnde || '')
-  const isRank2StartedToday = _rank2Date
+  const _rank2DateArrived = _rank2Date
     ? _today.getTime() >= _rank2Date.getTime()
     : false
+  const isRank2StartedToday = _rank2DateArrived && hasRank2Data
 
   // 1+2순위 총계
   const combinedGrandTotal = rank1GrandTotal + rank2GrandTotal
