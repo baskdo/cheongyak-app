@@ -206,6 +206,10 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
       const cell = r.getCell(c)
       const isRateCell = (c === 5 || c === 8 || c === 11)
       applyDataStyle(cell, { highlight: isRateCell })
+      // 정수 컬럼(세대수·특공배정·특공청약·1순위배정·1순위청약·2순위청약·전체접수)에
+      // 천 단위 구분기호 표시. 숫자값은 그대로 유지되고 '-' 문자열은 영향 없음.
+      const isIntCell = (c === 2 || c === 3 || c === 4 || c === 6 || c === 7 || c === 9 || c === 10)
+      if (isIntCell) cell.numFmt = '#,##0'
     }
     r.height = 22
 
@@ -246,6 +250,9 @@ function buildReportSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     const cell = totalRow.getCell(c)
     const isRateCell = (c === 5 || c === 8 || c === 11)
     applyTotalStyle(cell, { highlight: isRateCell })
+    // 데이터 행과 동일하게 정수 컬럼에 천 단위 구분기호 적용
+    const isIntCell = (c === 2 || c === 3 || c === 4 || c === 6 || c === 7 || c === 9 || c === 10)
+    if (isIntCell) cell.numFmt = '#,##0'
   }
   totalRow.height = 24
   rowNum++
@@ -382,6 +389,15 @@ function buildRawDataSheet(ws: ExcelJS.Worksheet, payload: ReportPayload) {
     note: '',
   })
   summaryRow.font = { bold: true }
+
+  // 정수 컬럼에 천 단위 구분기호(,) 표시서식 — 양식 시트와 동일 기준
+  const rawNumberColumns = [
+    'announcedSuply', 'spsplyAssigned', 'spsplyApplied',
+    'rank1Assigned', 'rank1Applied', 'rank2Applied', 'totalApplied',
+  ]
+  for (const key of rawNumberColumns) {
+    ws.getColumn(key).numFmt = '#,##0'
+  }
 
   // 보고서 작성일은 다른 시트에 있으니 여기선 생략
 }

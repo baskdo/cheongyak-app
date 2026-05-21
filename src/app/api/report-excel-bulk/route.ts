@@ -152,6 +152,22 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
     summaryRow.font = { bold: true }
   }
 
+  // 정수 컬럼에 천 단위 구분기호(,) 표시서식 적용
+  // numFmt '#,##0' → 셀 값은 숫자 그대로(계산·합계 정상), 표시만 4,285 형태.
+  // '-' 문자열이 든 셀은 숫자가 아니므로 서식 영향 없이 '-' 그대로 표시됨.
+  const numberColumns = [
+    'announcedSuply',  // 공급세대수
+    'spsplyAssigned',  // 특공_배정
+    'spsplyApplied',   // 특공_청약
+    'rank1Assigned',   // 1순위_배정
+    'rank1Applied',    // 1순위_청약
+    'rank2Applied',    // 2순위_청약
+    'totalApplied',    // 전체_접수
+  ]
+  for (const key of numberColumns) {
+    ws.getColumn(key).numFmt = '#,##0'
+  }
+
   // 헤더 고정 (스크롤 시 헤더 항상 보임)
   ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }]
   // 자동 필터 활성화 (엑셀에서 컬럼별 필터 즉시 사용 가능)
