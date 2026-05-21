@@ -1963,7 +1963,7 @@ function ThisWeekCard({
                   <th className="border border-rose-100 px-1 py-1 font-semibold">경쟁률</th>
                   {isRank2StartedToday && (
                     <>
-                      <th className="border border-rose-100 px-1 py-1 font-semibold bg-red-50" rowSpan={2}>1+2순위<br/>총접수</th>
+                      <th className="border border-rose-100 px-1 py-1 font-semibold bg-red-50" rowSpan={2}>일반공급<br/>총접수</th>
                       <th className="border border-rose-100 px-1 py-1 font-semibold bg-red-50" rowSpan={2}>총<br/>경쟁률</th>
                     </>
                   )}
@@ -2191,7 +2191,7 @@ function ThisWeekCard({
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
                   {isRank2StartedToday && (
                     <>
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>1+2순위<br/>총접수</th>
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>일반공급<br/>총접수</th>
                       <th className="border border-purple-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>총<br/>경쟁률</th>
                     </>
                   )}
@@ -2610,7 +2610,7 @@ function ThisWeekCard({
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>경쟁률</th>
                   {isRank2StartedToday && (
                     <>
-                      <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>1+2순위<br/>총접수</th>
+                      <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>일반공급<br/>총접수</th>
                       <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>총<br/>경쟁률</th>
                     </>
                   )}
@@ -2691,7 +2691,7 @@ function ThisWeekCard({
                   <tr style={{ backgroundColor: '#fef3c7', borderTop: '2px solid #fbbf24' }}>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>합계</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{effectiveRank1TotalSuply.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', color: '#374151', fontWeight: 600, fontSize: '11px', backgroundColor: '#fde68a', verticalAlign: 'middle' }}>1+2순위</td>
+                    <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', color: '#374151', fontWeight: 600, fontSize: '11px', backgroundColor: '#fde68a', verticalAlign: 'middle' }}>일반공급</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(effectiveRank1TotalLocal + (effectiveHasRank2 ? effectiveRank2TotalLocal : 0)).toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(effectiveRank1TotalEtc + (effectiveHasRank2 ? effectiveRank2TotalEtc : 0)).toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', verticalAlign: 'middle' }}>{effectiveCombinedGrandTotal.toLocaleString()}</td>
