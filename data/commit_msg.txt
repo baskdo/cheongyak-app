@@ -1,0 +1,5 @@
+perf: 첫 화면 로딩 최적화
+
+- apartments route: limit=recent일 때 주택형 1페이지로 축소, 경쟁률 호출 제거
+- competition route: fetchPaged에 maxPage=60 상한 추가 (무한 페이징 방지)
+- page.tsx: 프리페치를 9초 지연 한 번으로 변경 (첫 화면 부담 완화)
