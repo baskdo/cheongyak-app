@@ -318,8 +318,9 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const full = searchParams.get('full') === '1'
-    // 일일 cron: 최근분만(페이지 소수). full=1: 전체 재적재.
-    const maxPage = full ? 60 : 2
+    // 일일 cron: 최신 1페이지(1000건)만 → 최근 등록분 커버. full=1: 전체 재적재.
+    const pageParam = parseInt(searchParams.get('maxPage') || '', 10)
+    const maxPage = full ? 60 : (Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1)
 
     const dbUrl = process.env.DATABASE_URL
     if (!dbUrl) throw new Error('DATABASE_URL not set')
@@ -334,26 +335,44 @@ export async function GET(request: Request) {
 
     const sql = neon(dbUrl)
     let saved = 0
-    // upsert (행마다; 최근분이라 수십~수백 건 수준)
-    for (const it of items) {
-      await sql`
-        INSERT INTO competition_items
-          (pblanc_no, house_name, region, rcept_bgnde, rcept_endde, ym, item, updated_at)
-        VALUES (
-          ${it.pblancNo}, ${it.houseName}, ${it.region},
-          ${it.rceptBgnde || null}, ${it.rceptEndde || null},
-          ${toYm(it.rceptBgnde || '') || null}, ${JSON.stringify(it)}::jsonb, now()
+
+    // 배치 upsert: 여러 행을 한 INSERT 문으로 묶어 왕복 횟수를 줄인다.
+    const CHUNK = 100
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const chunk = items.slice(i, i + CHUNK)
+      // VALUES ($1,$2,...),($8,$9,...) ... 동적 구성
+      const valuesSql: string[] = []
+      const params: (string | null)[] = []
+      let p = 0
+      for (const it of chunk) {
+        valuesSql.push(
+          `($${p + 1}, $${p + 2}, $${p + 3}, $${p + 4}, $${p + 5}, $${p + 6}, $${p + 7}::jsonb, now())`
         )
-        ON CONFLICT (pblanc_no) DO UPDATE SET
-          house_name = EXCLUDED.house_name,
-          region = EXCLUDED.region,
-          rcept_bgnde = EXCLUDED.rcept_bgnde,
-          rcept_endde = EXCLUDED.rcept_endde,
-          ym = EXCLUDED.ym,
-          item = EXCLUDED.item,
-          updated_at = now()
-      `
-      saved += 1
+        params.push(
+          it.pblancNo,
+          it.houseName,
+          it.region,
+          it.rceptBgnde || null,
+          it.rceptEndde || null,
+          toYm(it.rceptBgnde || '') || null,
+          JSON.stringify(it)
+        )
+        p += 7
+      }
+      const query =
+        `INSERT INTO competition_items
+           (pblanc_no, house_name, region, rcept_bgnde, rcept_endde, ym, item, updated_at)
+         VALUES ${valuesSql.join(', ')}
+         ON CONFLICT (pblanc_no) DO UPDATE SET
+           house_name = EXCLUDED.house_name,
+           region = EXCLUDED.region,
+           rcept_bgnde = EXCLUDED.rcept_bgnde,
+           rcept_endde = EXCLUDED.rcept_endde,
+           ym = EXCLUDED.ym,
+           item = EXCLUDED.item,
+           updated_at = now()`
+      await sql.query(query, params)
+      saved += chunk.length
     }
 
     await sql`INSERT INTO competition_sync_log (item_count, note) VALUES (${saved}, ${full ? 'cron-full' : 'cron-daily'})`
