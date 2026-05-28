@@ -1916,8 +1916,15 @@ function ThisWeekCard({
                           {val ? val.toLocaleString() : '-'}
                         </td>
                       ))}
-                      <td className="border border-amber-200 px-1.5 py-1.5 text-center font-extrabold text-red-700 text-[12px] bg-red-50 sticky right-0 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.12)]">
-                        {grandTotal.toLocaleString()}
+                      <td className="border border-amber-200 px-1.5 py-1.5 text-center bg-red-50 sticky right-0 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.12)]">
+                        <div className="font-extrabold text-red-700 text-[12px] leading-tight">
+                          {grandTotal.toLocaleString()}
+                        </div>
+                        {totalSupply > 0 && (
+                          <div className="font-semibold text-red-500 text-[9px] leading-tight mt-0.5">
+                            ({(Math.floor((grandTotal / totalSupply) * 100) / 100).toFixed(2)}:1)
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )
