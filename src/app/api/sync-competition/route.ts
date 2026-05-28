@@ -7,7 +7,8 @@ import { neon } from '@neondatabase/serverless'
 //   - competition/special/notice 를 병렬 호출, 페이지 수 제한(maxPage)
 //   - ?full=1 (+ 토큰) 으로 호출하면 전체 재적재 (수동/초기용, 로컬에서 길게)
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60 // Pro면 60s까지. Hobby는 10s에서 잘릴 수 있어 페이지 제한으로 대응.
+// Hobby 플랜 함수 시간제한이 10초이므로 그에 맞춤. 일일 수집은 maxPage=2라 충분.
+export const maxDuration = 10
 
 // ===================== TYPES =====================
 type AnyRow = Record<string, string | number | undefined>
@@ -272,7 +273,7 @@ function buildItems(competitionRows: AnyRow[], specialRows: AnyRow[], noticeRows
   }
 
   const items: CompetitionItem[] = []
-  for (const item of grouped.values()) {
+  for (const item of Array.from(grouped.values())) {
     const hts = spsplyHouseTypes.get(item.pblancNo)
     if (hts) {
       const sorted = [...hts].sort((a, b) => a.type.localeCompare(b.type))
