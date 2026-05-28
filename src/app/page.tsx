@@ -2556,8 +2556,15 @@ function ThisWeekCard({
                           {val ? val.toLocaleString() : '-'}
                         </td>
                       ))}
-                      <td style={{ border: '1px solid #fcd34d', padding: '8px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', fontSize: '14px', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>
-                        {grandTotal.toLocaleString()}
+                      <td style={{ border: '1px solid #fcd34d', padding: '6px 4px', textAlign: 'center', backgroundColor: '#fee2e2', verticalAlign: 'middle' }}>
+                        <div style={{ fontWeight: 800, color: '#b91c1c', fontSize: '14px', lineHeight: 1.1 }}>
+                          {grandTotal.toLocaleString()}
+                        </div>
+                        {totalSupply > 0 && (
+                          <div style={{ fontWeight: 600, color: '#ef4444', fontSize: '10px', lineHeight: 1.1, marginTop: '2px' }}>
+                            ({(Math.floor((grandTotal / totalSupply) * 100) / 100).toFixed(2)}:1)
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )
