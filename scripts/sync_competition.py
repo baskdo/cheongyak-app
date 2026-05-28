@@ -148,45 +148,93 @@ def to_item_key(pblanc_no: str, house_manage_no: str) -> str:
     return pblanc_no or house_manage_no
 
 
-# ===================== 특공 집계 (route.ts SpecialAgg 포팅) =====================
-SPECIAL_FIELDS = [
-    "MNYCH_HSHLDCO",
-    "NWWDS_NMTW_HSHLDCO",
-    "LFE_FRST_HSHLDCO",
-    "NWBB_NWBBSHR_HSHLDCO",
-    "YGMN_HSHLDCO",
-    "OLD_PARNTS_SUPORT_HSHLDCO",
-    "CRSPAREA_MNYCH_CNT",
-    "CRSPAREA_NWWDS_NMTW_CNT",
-    "CRSPAREA_LFE_FRST_CNT",
-    "CRSPAREA_NWBB_NWBBSHR_CNT",
-    "CRSPAREA_YGMN_CNT",
-    "CRSPAREA_OPS_CNT",
-]
+# ===================== 특공 → SpecialSupplyItem 구조 (special-supply route 포팅) =====================
+# 카드(CompetitionCard)가 기대하는 구조를 그대로 만든다:
+#   houseTypes[] -> { type, typeLabel, spsplyHshldco, categories[] }
+#   categories[] -> { name, suply, areaData{해당,기타경기,기타지역} | instData{결정,미결} }
+# 접수건수는 3지역(해당 CRSPAREA + 기타경기 CTPRVN + 기타지역 ETC_AREA) 합산이 핵심.
+import re
 
 
-def empty_special_agg() -> dict:
-    return {k: 0 for k in SPECIAL_FIELDS}
+def _num(v) -> int:
+    try:
+        return int(float(v or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
-def to_special_agg(row: dict) -> dict:
-    agg = {}
-    for k in SPECIAL_FIELDS:
-        try:
-            agg[k] = int(float(row.get(k) or 0))
-        except (TypeError, ValueError):
-            agg[k] = 0
-    return agg
+def _type_label(ty: str) -> str:
+    """084.5600A → 84A (special-supply route의 정규식 포팅)"""
+    ty = (ty or "").strip()
+    m = re.match(r"^0*(\d+)\.?\d*([A-Za-z]*)$", ty)
+    if not m:
+        return ty
+    base = m.group(1)            # 정수부 (정규식이 선행 0 제거 후 캡처)
+    suffix = (m.group(2) or "").upper()
+    return f"{base}{suffix}"
 
 
-def merge_special_agg(target: dict, add: dict) -> dict:
-    return {k: target.get(k, 0) + add.get(k, 0) for k in SPECIAL_FIELDS}
+def build_spsply_house_type(row: dict):
+    """특공 1행(주택형) → houseType dict. 배정합계 0이면 None."""
+    total_assigned = (
+        _num(row.get("MNYCH_HSHLDCO")) + _num(row.get("NWWDS_NMTW_HSHLDCO"))
+        + _num(row.get("LFE_FRST_HSHLDCO")) + _num(row.get("YGMN_HSHLDCO"))
+        + _num(row.get("OLD_PARNTS_SUPORT_HSHLDCO")) + _num(row.get("NWBB_NWBBSHR_HSHLDCO"))
+        + _num(row.get("INSTT_RECOMEND_HSHLDCO")) + _num(row.get("TRANSR_INSTT_ENFSN_HSHLDCO"))
+    )
+    if total_assigned == 0:
+        return None
 
+    ty = str(row.get("HOUSE_TY") or "").strip()
+    if not ty:
+        return None
 
-def special_agg_to_record(agg: dict):
-    out = {k: str(agg.get(k, 0)) for k in SPECIAL_FIELDS}
-    has_any = any(int(v) > 0 for v in out.values())
-    return out if has_any else None
+    categories = []
+
+    # 일반 6분류 (지역구분 있음) — suply>0 일 때만
+    general = [
+        ("다자녀", "MNYCH_HSHLDCO", "MNYCH"),
+        ("신혼부부", "NWWDS_NMTW_HSHLDCO", "NWWDS_NMTW"),
+        ("생애최초", "LFE_FRST_HSHLDCO", "LFE_FRST"),
+        ("청년", "YGMN_HSHLDCO", "YGMN"),
+        ("노부모", "OLD_PARNTS_SUPORT_HSHLDCO", "OPS"),   # 배정은 OLD_PARNTS, 접수는 OPS
+        ("신생아", "NWBB_NWBBSHR_HSHLDCO", "NWBB_NWBBSHR"),
+    ]
+    for name, suply_field, cnt_key in general:
+        suply = _num(row.get(suply_field))
+        if suply > 0:
+            categories.append({
+                "name": name,
+                "suply": suply,
+                "areaData": {
+                    "해당": _num(row.get(f"CRSPAREA_{cnt_key}_CNT")),
+                    "기타경기": _num(row.get(f"CTPRVN_{cnt_key}_CNT")),
+                    "기타지역": _num(row.get(f"ETC_AREA_{cnt_key}_CNT")),
+                },
+            })
+
+    # 기관 분류 (결정/미결)
+    inst = [
+        ("기관추천", "INSTT_RECOMEND_HSHLDCO",
+         _num(row.get("INSTT_RECOMEND_DCSN_CNT")), _num(row.get("INSTT_RECOMEND_PREPAR_CNT"))),
+        ("이전기관", "TRANSR_INSTT_ENFSN_HSHLDCO",
+         _num(row.get("TRANSR_INSTT_ENFSN_CNT")), 0),
+    ]
+    for name, suply_field, dcsn, prepar in inst:
+        suply = _num(row.get(suply_field))
+        if suply > 0:
+            categories.append({
+                "name": name,
+                "suply": suply,
+                "instData": {"결정": dcsn, "미결": prepar},
+            })
+
+    return {
+        "type": ty,
+        "typeLabel": _type_label(ty),
+        "spsplyHshldco": _num(row.get("SPSPLY_HSHLDCO")),
+        "categories": categories,
+    }
 
 
 # ===================== API 호출 (페이지네이션) =====================
@@ -266,8 +314,9 @@ def build_competition_items() -> list:
             "rceptEndde": parse_date(row.get("RCEPT_ENDDE")),
         }
 
-    # 특공 집계 + 메타
-    special_map = {}
+    # 특공: 주택형별 houseType 을 공고별로 누적 (special-supply route 방식)
+    spsply_house_types = {}   # key -> list[houseType dict]
+    spsply_meta = {}          # key -> {subscrptResultNm}
     meta_map = {}
     for row in special_rows:
         pblanc_no = str(row.get("PBLANC_NO") or "").strip()
@@ -275,8 +324,15 @@ def build_competition_items() -> list:
         key = to_item_key(pblanc_no, house_manage_no)
         if not key:
             continue
-        current = special_map.get(key) or empty_special_agg()
-        special_map[key] = merge_special_agg(current, to_special_agg(row))
+
+        ht = build_spsply_house_type(row)
+        if ht is not None:
+            spsply_house_types.setdefault(key, []).append(ht)
+            if key not in spsply_meta:
+                spsply_meta[key] = {
+                    "subscrptResultNm": str(row.get("SUBSCRPT_RESULT_NM") or "").strip(),
+                }
+
         if key not in meta_map:
             meta_map[key] = {
                 "houseName": pick_house_name(row),
@@ -337,13 +393,22 @@ def build_competition_items() -> list:
             "reside": normalize_reside(row.get("RESIDE_SENM"), row.get("RESIDE_SECD")),
         })
 
-    # 특공 집계를 첫 주택형에 얹기 + 주택형 정렬
+    # 특공(SpecialSupplyItem 구조)을 item.spsplyDetail 로 저장 + 주택형 정렬
     items = []
     for item in grouped.values():
-        spsply_agg = special_map.get(item["pblancNo"])
-        spsply = special_agg_to_record(spsply_agg) if spsply_agg else None
-        if spsply and item["houseTypes"]:
-            item["houseTypes"][0]["spsply"] = spsply
+        house_types = spsply_house_types.get(item["pblancNo"])
+        if house_types:
+            # 주택형별 정렬 (special-supply route와 동일: type 오름차순)
+            house_types = sorted(house_types, key=lambda h: h["type"])
+            item["spsplyDetail"] = {
+                "pblancNo": item["pblancNo"],
+                "houseName": item["houseName"],
+                "region": item["region"],
+                "rceptBgnde": item["rceptBgnde"],
+                "rceptEndde": item["rceptEndde"],
+                "subscrptResultNm": spsply_meta.get(item["pblancNo"], {}).get("subscrptResultNm", ""),
+                "houseTypes": house_types,
+            }
 
         item["houseTypes"].sort(key=lambda h: (
             h["type"],

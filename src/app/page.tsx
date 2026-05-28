@@ -83,6 +83,9 @@ type CompetitionItem = {
   rceptBgnde: string
   rceptEndde: string
   houseTypes: HouseTypeRate[]
+  // DB(competition API)가 함께 제공하는 특공 상세 (special-supply와 동일 구조)
+  // 경쟁률 탭은 별도 special-supply 호출 대신 이 값을 사용한다.
+  spsplyDetail?: SpecialSupplyItem
 }
 
 // 청약홈 사이트 직접 조회 결과 (공공 API 폴백용)
@@ -2968,7 +2971,10 @@ export default function Home() {
           if (typeMap.size === 0) return null
 
           // 특공 매칭 (공고번호 기준)
-          const matchedSpsply = spsplyList.find(s => String(s.pblancNo || '').trim() === String(item.pblancNo || '').trim())
+          // DB(competition API)가 함께 준 item.spsplyDetail 우선, 없으면 기존 special-supply 폴백.
+          // 이후 계산 로직과 엑셀 출력 형식은 일절 변경 없음 (동일 구조라 그대로 동작).
+          const matchedSpsply = item.spsplyDetail
+            || spsplyList.find(s => String(s.pblancNo || '').trim() === String(item.pblancNo || '').trim())
 
           // 공고문 정보(typeDetails) 매칭 — 공고문상 공급세대수(announcedSuply) 추출용
           // ApartmentItem의 식별자는 'id' (= pblancNo와 동일 형식)
@@ -3419,7 +3425,11 @@ export default function Home() {
                 ? Array(6).fill(0).map((_, i) => <SkeletonCard key={i} />)
                 : filteredCmpet.length > 0
                   ? filteredCmpet.map(item => {
-                      const matchedSpsply = spsplyItems.find(s => String(s.pblancNo || '').trim() === String(item.pblancNo || '').trim()) || null
+                      // 특공: DB(competition API)가 함께 준 spsplyDetail 우선 사용.
+                      // (과거 special-supply 별도 호출 결과는 폴백으로만)
+                      const matchedSpsply = item.spsplyDetail
+                        || spsplyItems.find(s => String(s.pblancNo || '').trim() === String(item.pblancNo || '').trim())
+                        || null
                       return <CompetitionCard key={item.pblancNo} item={item} specialSupply={matchedSpsply} />
                     })
                   : (
