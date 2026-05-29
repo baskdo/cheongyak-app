@@ -1970,11 +1970,11 @@ function ThisWeekCard({
                   <th className="border border-rose-100 px-1 py-1 font-semibold">해당<br/>지역</th>
                   <th className="border border-rose-100 px-1 py-1 font-semibold">기타<br/>지역</th>
                   <th className="border border-rose-100 px-1 py-1 font-semibold">소계</th>
-                  <th className="border border-rose-100 px-1 py-1 font-semibold">경쟁률</th>
+                  <th className="border border-rose-100 px-1 py-1 font-semibold">평균경쟁률</th>
                   {isRank2StartedToday && (
                     <>
                       <th className="border border-rose-100 px-1 py-1 font-semibold bg-red-50" rowSpan={2}>일반공급<br/>총접수</th>
-                      <th className="border border-rose-100 px-1 py-1 font-semibold bg-red-50" rowSpan={2}>총<br/>경쟁률</th>
+                      <th className="border border-rose-100 px-1 py-1 font-semibold bg-red-50" rowSpan={2}>전체<br/>경쟁률</th>
                     </>
                   )}
                 </tr>
@@ -2154,8 +2154,8 @@ function ThisWeekCard({
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5">
             {isRank2StartedToday
-              ? '※ 총 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미'
-              : '※ 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
+              ? '※ 전체 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미'
+              : '※ 평균 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
           </p>
         </div>
       )}
@@ -2198,11 +2198,11 @@ function ThisWeekCard({
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">소계</th>
-                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">경쟁률</th>
+                  <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">평균경쟁률</th>
                   {isRank2StartedToday && (
                     <>
                       <th className="border border-purple-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>일반공급<br/>총접수</th>
-                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>총<br/>경쟁률</th>
+                      <th className="border border-purple-100 px-1.5 py-1.5 font-semibold bg-red-50" rowSpan={2}>전체<br/>경쟁률</th>
                     </>
                   )}
                 </tr>
@@ -2363,8 +2363,8 @@ function ThisWeekCard({
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
             {isRank2StartedToday
-              ? '※ 출처: 청약홈 (applyhome.co.kr) / 총 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식)'
-              : '※ 출처: 청약홈 (applyhome.co.kr) / 경쟁률 분모는 1순위 공급세대 기준 · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
+              ? '※ 출처: 청약홈 (applyhome.co.kr) / 전체 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식)'
+              : '※ 출처: 청약홈 (applyhome.co.kr) / 평균 경쟁률 분모는 1순위 공급세대 기준 · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
           </p>
         </div>
       )}
@@ -2612,7 +2612,7 @@ function ThisWeekCard({
                 <col style={{ width: '70px' }} />{/* 소계 */}
                 <col style={{ width: '90px' }} />{/* 경쟁률 */}
                 {isRank2StartedToday && <col style={{ width: '80px' }} />}{/* 총접수 */}
-                {isRank2StartedToday && <col style={{ width: '' }} />}{/* 총경쟁률 가변 */}
+                {isRank2StartedToday && <col style={{ width: '' }} />}{/* 전체경쟁률 가변 */}
               </colgroup>
               <thead>
                 <tr style={{ backgroundColor: '#ffe4e6', color: '#374151' }}>
@@ -2624,11 +2624,11 @@ function ThisWeekCard({
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>해당<br/>지역</th>
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>기타<br/>지역</th>
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>소계</th>
-                  <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>경쟁률</th>
+                  <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>평균경쟁률</th>
                   {isRank2StartedToday && (
                     <>
                       <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>일반공급<br/>총접수</th>
-                      <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>총<br/>경쟁률</th>
+                      <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle', backgroundColor: '#fee2e2' }}>전체<br/>경쟁률</th>
                     </>
                   )}
                 </tr>
@@ -2730,8 +2730,8 @@ function ThisWeekCard({
 
             <div style={{ marginTop: '8px', fontSize: '10px', color: '#9ca3af' }}>
               {isRank2StartedToday
-                ? '※ 총 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미'
-                : '※ 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
+                ? '※ 전체 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미'
+                : '※ 평균 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
               <br />출처: 청약홈 (한국부동산원){useApplyhomeFallback ? ' · 청약홈 사이트 직접 조회' : ''}
             </div>
           </div>
