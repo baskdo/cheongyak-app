@@ -2939,6 +2939,8 @@ export default function Home() {
             typeLabel: string
             suply: number
             rank1Applied: number
+            rank1Local: number
+            rank1Etc: number
             rank2Applied: number
           }>()
 
@@ -2954,11 +2956,14 @@ export default function Home() {
             const suply = parseInt(h.suply || '0', 10)
 
             if (!typeMap.has(key)) {
-              typeMap.set(key, { type: key, typeLabel, suply, rank1Applied: 0, rank2Applied: 0 })
+              typeMap.set(key, { type: key, typeLabel, suply, rank1Applied: 0, rank1Local: 0, rank1Etc: 0, rank2Applied: 0 })
             }
             const entry = typeMap.get(key)!
             if (suply > entry.suply) entry.suply = suply
             entry.rank1Applied += reqCnt
+            // 해당지역 / 기타지역(기타경기 포함) 분리 — 기존 화면 로직과 동일 기준
+            if (h.reside === '해당지역') entry.rank1Local += reqCnt
+            else entry.rank1Etc += reqCnt
           })
 
           // 2순위 누적
@@ -3013,6 +3018,8 @@ export default function Home() {
                 spsplyAssigned,
                 spsplyApplied,
                 rank1Applied: t.rank1Applied,
+                rank1Local: t.rank1Local,
+                rank1Etc: t.rank1Etc,
                 rank2Applied: t.rank2Applied,
               }
             })

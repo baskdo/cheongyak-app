@@ -16,6 +16,8 @@ type BulkRow = {
   spsplyAssigned: number  // 특별공급 배정세대수
   spsplyApplied: number   // 특별공급 청약접수
   rank1Applied: number    // 1순위 청약접수 (해당+기타)
+  rank1Local: number      // 1순위 해당지역 접수
+  rank1Etc: number        // 1순위 기타지역(+기타경기) 접수
   rank2Applied: number    // 2순위 청약접수 (해당+기타)
 }
 
@@ -58,6 +60,8 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
     { header: '특공_청약', key: 'spsplyApplied', width: 12 },
     { header: '특공_경쟁률', key: 'spsplyRate', width: 12 },
     { header: '1순위_배정', key: 'rank1Assigned', width: 12 },
+    { header: '1순위_해당지역', key: 'rank1Local', width: 14 },
+    { header: '1순위_기타지역', key: 'rank1Etc', width: 14 },
     { header: '1순위_청약', key: 'rank1Applied', width: 12 },
     { header: '1순위_경쟁률', key: 'rank1Rate', width: 12 },
     { header: '2순위_청약', key: 'rank2Applied', width: 12 },
@@ -89,6 +93,8 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
     let totalSpsplyAssigned = 0
     let totalSpsplyApplied = 0
     let totalRank1Applied = 0
+    let totalRank1Local = 0
+    let totalRank1Etc = 0
     let totalRank2Applied = 0
 
     // 주택형별 행
@@ -113,6 +119,8 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
         spsplyApplied: row.spsplyAssigned > 0 ? dashIfZero(row.spsplyApplied) : '-',
         spsplyRate: row.spsplyAssigned > 0 ? rateOrDash(row.spsplyApplied, row.spsplyAssigned) : '-',
         rank1Assigned: row.suply,
+        rank1Local: dashIfZero(row.rank1Local),
+        rank1Etc: dashIfZero(row.rank1Etc),
         rank1Applied: dashIfZero(row.rank1Applied),
         rank1Rate: rateOrDash(row.rank1Applied, row.suply),
         rank2Applied: dashIfZero(row.rank2Applied),
@@ -126,6 +134,8 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
       totalSpsplyAssigned += row.spsplyAssigned
       totalSpsplyApplied += row.spsplyApplied
       totalRank1Applied += row.rank1Applied
+      totalRank1Local += row.rank1Local
+      totalRank1Etc += row.rank1Etc
       totalRank2Applied += row.rank2Applied
     }
 
@@ -142,6 +152,8 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
       spsplyApplied: dashIfZero(totalSpsplyApplied),
       spsplyRate: rateOrDash(totalSpsplyApplied, totalSpsplyAssigned),
       rank1Assigned: totalSuply,
+      rank1Local: dashIfZero(totalRank1Local),
+      rank1Etc: dashIfZero(totalRank1Etc),
       rank1Applied: dashIfZero(totalRank1Applied),
       rank1Rate: rateOrDash(totalRank1Applied, totalSuply),
       rank2Applied: dashIfZero(totalRank2Applied),
@@ -160,6 +172,8 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
     'spsplyAssigned',  // 특공_배정
     'spsplyApplied',   // 특공_청약
     'rank1Assigned',   // 1순위_배정
+    'rank1Local',      // 1순위_해당지역
+    'rank1Etc',        // 1순위_기타지역
     'rank1Applied',    // 1순위_청약
     'rank2Applied',    // 2순위_청약
     'totalApplied',    // 전체_접수
