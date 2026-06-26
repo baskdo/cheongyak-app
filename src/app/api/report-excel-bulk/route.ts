@@ -104,18 +104,9 @@ function buildBulkSheet(ws: ExcelJS.Worksheet, payload: BulkPayload) {
       // 폴백: 0이면 (구버전 캐시 등) row.suply + row.spsplyAssigned로 추정
       const totalApplied = row.rank1Applied + row.rank2Applied
       const note = determineNote(row)
-      // 특공 미달분 이월 보정 (2026-06):
-      //   row.suply(1순위 모집)에는 특공 미달분이 이미 이월(합산)되어 있음.
-      //   기존 폴백식 (suply + spsplyAssigned)은 이월 세대를 1순위·특공 양쪽에서
-      //   중복 계산 → 공급세대수가 실제보다 부풀려짐 (예: 112A 배정9/접수6 → +3).
-      //   미달분(배정−접수)을 빼서 청약홈 표시 총공급세대수와 일치시킴.
-      //   ※ 특공 접수 데이터가 있을 때만 보정(미발표/누락 시 기존 동작 유지).
-      const spsplyCarryover = row.spsplyApplied > 0
-        ? Math.max(0, row.spsplyAssigned - row.spsplyApplied)
-        : 0
       const announced = row.announcedSuply > 0
         ? row.announcedSuply
-        : row.suply + row.spsplyAssigned - spsplyCarryover
+        : row.suply + row.spsplyAssigned
 
       ws.addRow({
         houseName: house.houseName,

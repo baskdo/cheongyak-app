@@ -2926,6 +2926,33 @@ export default function Home() {
   ) => {
     setDownloadingBulk(true)
     try {
+      // 공급세대수(청약홈 표시값) 보정용 — 공고번호별 Mdl 총공급(일반+특공) 조회.
+      //   competition DB에는 1순위 모집세대(이월 포함)만 있어 특공 완전미달 주택형에서
+      //   공급세대수가 부풀려짐 → Mdl 고정 공고값으로 정확히 맞춘다.
+      let supplyTotalMap: Record<string, Record<string, number>> = {}
+      try {
+        const pblancNos = Array.from(
+          new Set(
+            filteredItems
+              .map((i) => String(i.pblancNo || '').trim())
+              .filter(Boolean)
+          )
+        )
+        if (pblancNos.length > 0) {
+          const stRes = await fetch('/api/supply-total', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pblancNos }),
+          })
+          if (stRes.ok) {
+            const stJson = await stRes.json()
+            supplyTotalMap = stJson.map || {}
+          }
+        }
+      } catch (stErr) {
+        console.error('[supply-total] 조회 실패, 기존 폴백 사용:', stErr)
+      }
+
       // 데이터 있는 단지만 추출 + 페이로드 변환
       const houses = filteredItems
         .map((item) => {
@@ -3004,9 +3031,13 @@ export default function Home() {
                   }
                 }
               }
-              // 공고문상 공급세대수 매칭 (typeDetails의 suplyHshldco)
+              // 공급세대수 = Mdl 총공급(일반+특공) 우선 — 청약홈 표시값과 정확히 일치(이월 무관).
+              // 폴백 순서: supply-total(Mdl) → 현재공고 typeDetails → 0(엑셀 route에서 재폴백)
               let announcedSuply = 0
-              if (matchedNotice && matchedNotice.typeDetails) {
+              const stType = supplyTotalMap[String(item.pblancNo || '').trim()]?.[t.type.trim()]
+              if (typeof stType === 'number' && stType > 0) {
+                announcedSuply = stType
+              } else if (matchedNotice && matchedNotice.typeDetails) {
                 const td = matchedNotice.typeDetails.find(d => d.type.trim() === t.type.trim())
                 if (td) announcedSuply = td.suplyHshldco
               }
