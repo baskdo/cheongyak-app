@@ -1472,7 +1472,7 @@ function ThisWeekCard({
           rank1Applied: r1?.total || 0,
           rank2Applied,
         }
-      })
+      }).sort(byHouseType)
 
       // 보고서 작성일 (오늘)
       const today = new Date()
