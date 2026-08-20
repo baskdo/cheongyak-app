@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { neon } from '@neondatabase/serverless'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 // ===================== TYPES (응답 구조 — 기존과 100% 동일) =====================
 type HouseTypeRate = {
@@ -86,6 +88,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       items,
       total: items.length,
+    }, {
+      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0' },
     })
   } catch (error) {
     console.error('[competition GET] error:', error)

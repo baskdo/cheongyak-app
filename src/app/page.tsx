@@ -2915,7 +2915,7 @@ export default function Home() {
 
       const res = await fetch(
         `/api/competition?${params.toString()}`,
-        fresh ? { cache: 'no-store' } : undefined
+        { cache: 'no-store' }
       )
       const data = await res.json()
       setCmpetItems(data.items || [])
