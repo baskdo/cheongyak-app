@@ -49,6 +49,7 @@ type CompetitionItem = {
   region: string
   rceptBgnde: string
   rceptEndde: string
+  totalSupply?: number  // 총 공급세대수 (일반+특공, 공고 원본 TOT_SUPLY_HSHLDCO)
   houseTypes: HouseTypeRate[]
   spsplyDetail?: SpecialSupplyItem
 }
@@ -218,7 +219,7 @@ async function fetchPaged(endpoint: string, maxPage: number): Promise<AnyRow[]> 
 
 // ===================== 가공 (sync_competition.py 포팅) =====================
 function buildItems(competitionRows: AnyRow[], specialRows: AnyRow[], noticeRows: AnyRow[]): CompetitionItem[] {
-  const noticeMap = new Map<string, { houseName: string; address: string; regionName: string; rceptBgnde: string; rceptEndde: string }>()
+  const noticeMap = new Map<string, { houseName: string; address: string; regionName: string; rceptBgnde: string; rceptEndde: string; totalSupply: number }>()
   for (const row of noticeRows) {
     const key = toItemKey(String(row.PBLANC_NO || '').trim(), String(row.HOUSE_MANAGE_NO || '').trim())
     if (!key) continue
@@ -228,6 +229,7 @@ function buildItems(competitionRows: AnyRow[], specialRows: AnyRow[], noticeRows
       regionName: String(row.SUBSCRPT_AREA_CODE_NM || '').trim(),
       rceptBgnde: parseDate(row.RCEPT_BGNDE),
       rceptEndde: parseDate(row.RCEPT_ENDDE),
+      totalSupply: n(row.TOT_SUPLY_HSHLDCO),  // 총 공급세대수 (일반+특공)
     })
   }
 
@@ -260,7 +262,7 @@ function buildItems(competitionRows: AnyRow[], specialRows: AnyRow[], noticeRows
     const rowRegion = normalizeRegion(houseName, notice?.address || '', notice?.regionName || '')
 
     if (!grouped.has(key)) {
-      grouped.set(key, { pblancNo: key, houseName, region: rowRegion, rceptBgnde, rceptEndde, houseTypes: [] })
+      grouped.set(key, { pblancNo: key, houseName, region: rowRegion, rceptBgnde, rceptEndde, totalSupply: notice?.totalSupply ?? 0, houseTypes: [] })
     }
     grouped.get(key)!.houseTypes.push({
       type: String(row.HOUSE_TY || '').trim(),

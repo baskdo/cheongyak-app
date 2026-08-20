@@ -312,6 +312,8 @@ def build_competition_items() -> list:
             "regionName": str(row.get("SUBSCRPT_AREA_CODE_NM") or "").strip(),
             "rceptBgnde": parse_date(row.get("RCEPT_BGNDE")),
             "rceptEndde": parse_date(row.get("RCEPT_ENDDE")),
+            # 총 공급세대수 (일반+특공, 청약홈 공고 원본값) — 카드 "총 공급" 표시용
+            "totalSupply": _num(row.get("TOT_SUPLY_HSHLDCO")),
         }
 
     # 특공: 주택형별 houseType 을 공고별로 누적 (special-supply route 방식)
@@ -381,6 +383,7 @@ def build_competition_items() -> list:
                 "region": row_region,
                 "rceptBgnde": rcept_bgnde,
                 "rceptEndde": rcept_endde,
+                "totalSupply": (notice or {}).get("totalSupply", 0),
                 "houseTypes": [],
             }
 

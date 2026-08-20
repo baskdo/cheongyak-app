@@ -20,6 +20,7 @@ type CompetitionItem = {
   region: string
   rceptBgnde: string
   rceptEndde: string
+  totalSupply?: number  // 총 공급세대수 (일반+특공, 공고 원본 TOT_SUPLY_HSHLDCO)
   houseTypes: HouseTypeRate[]
 }
 

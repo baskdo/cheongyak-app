@@ -82,6 +82,7 @@ type CompetitionItem = {
   region: string
   rceptBgnde: string
   rceptEndde: string
+  totalSupply?: number  // 총 공급세대수 (일반+특공, DB에서 전달 — 공고 원본값)
   houseTypes: HouseTypeRate[]
   // DB(competition API)가 함께 제공하는 특공 상세 (special-supply와 동일 구조)
   // 경쟁률 탭은 별도 special-supply 호출 대신 이 값을 사용한다.
@@ -653,6 +654,11 @@ function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; speci
 
       <div>
         <h3 className="font-bold text-gray-900 text-base leading-snug">{item.houseName}</h3>
+        {item.totalSupply != null && item.totalSupply > 0 && (
+          <p className="text-xs font-semibold text-gray-500 mt-1">
+            총 공급 <span className="text-gray-900">{item.totalSupply.toLocaleString()}세대</span>
+          </p>
+        )}
       </div>
 
       <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 space-y-1.5 leading-relaxed">
