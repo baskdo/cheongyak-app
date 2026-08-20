@@ -26,6 +26,39 @@ import requests
 import psycopg2
 from psycopg2.extras import execute_values
 
+
+# ---- .env.local 자동 로드 (python-dotenv 불필요, 표준 라이브러리만 사용) ----
+# 프로젝트 루트(scripts 상위 폴더)의 .env.local 을 찾아 환경변수로 주입한다.
+# 이미 셋된 실제 환경변수가 있으면 그 값을 우선(setdefault)하므로 덮어쓰지 않는다.
+# 파일에서 직접 읽으므로 cmd 의 %/따옴표 이스케이프 문제도 없다.
+def _load_env_local() -> None:
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "..", ".env.local"),   # 프로젝트 루트 (scripts 상위)
+        os.path.join(here, ".env.local"),           # scripts 폴더 안
+        os.path.join(os.getcwd(), ".env.local"),    # 현재 작업 폴더
+    ]
+    for path in candidates:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, val = line.partition("=")   # 첫 '='로만 분리 (값의 '==' 보존)
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    if key:
+                        os.environ.setdefault(key, val)
+        except OSError:
+            continue
+        break  # 첫 번째로 찾은 파일만 사용
+
+
+_load_env_local()
+
 # ---- 환경변수 ----
 API_KEY = os.environ.get("ODCLOUD_API_KEY", "").strip()
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
