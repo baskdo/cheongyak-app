@@ -321,6 +321,18 @@ function formatHouseType(typeStr: string): string {
   })
 }
 
+// 주택형 정렬 기준: 평형 숫자(정수) 오름차순 → 같은 숫자면 알파벳(A,B,C…) 오름차순
+// 원본이 "051.9878D" / "051.5400C" / "051.9200B" 처럼 소수점이 달라도
+// 문자열 비교가 아닌 (정수평형, 접미사) 기준으로 정렬 → 51B, 51C, 51D 순서 보장
+function byHouseType(a: { type: string }, b: { type: string }): number {
+  const na = Math.floor(parseFloat(a.type)) || 0
+  const nb = Math.floor(parseFloat(b.type)) || 0
+  if (na !== nb) return na - nb
+  const sa = (a.type.match(/[A-Za-z]+$/)?.[0] || '').toUpperCase()
+  const sb = (b.type.match(/[A-Za-z]+$/)?.[0] || '').toUpperCase()
+  return sa.localeCompare(sb)
+}
+
 function formatRate(rate: string): { label: string; isDeficit: boolean } {
   if (!rate) return { label: '-', isDeficit: false }
   const isDeficit = rate.includes('△')
@@ -1087,7 +1099,7 @@ function ThisWeekCard({
     })
 
     return Array.from(map.values())
-      .sort((a, b) => a.type.localeCompare(b.type))
+      .sort(byHouseType)
       .map((e) => {
         const total = e.local + e.etc
         const rate = e.suply > 0 ? Math.round((total / e.suply) * 100) / 100 : 0
@@ -1281,7 +1293,7 @@ function ThisWeekCard({
       etc: r.etc,
       total: r.total,
       rate: r.rate,
-    }))
+    })).sort(byHouseType)
   })()
   const fallbackRank2ByType = (() => {
     if (!useApplyhomeFallback || !applyhomeData) return [] as typeof rank2ByType
@@ -1830,7 +1842,7 @@ function ThisWeekCard({
                 </tr>
               </thead>
               <tbody>
-                {effectiveSpecialSupply.houseTypes.flatMap((ht) => {
+                {[...effectiveSpecialSupply.houseTypes].sort(byHouseType).flatMap((ht) => {
                   // 카테고리별 데이터를 8개 컬럼으로 매핑
                   const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
                   const findCat = (name: string) => ht.categories.find(c => c.name === name)
@@ -2208,7 +2220,7 @@ function ThisWeekCard({
                 </tr>
               </thead>
               <tbody>
-                {applyhomeData.rank1ByType.flatMap((r1) => {
+                {[...applyhomeData.rank1ByType].sort(byHouseType).flatMap((r1) => {
                   const r2 = applyhomeData.rank2ByType?.find((x) => x.type === r1.type)
                   const combined = applyhomeData.combinedByType?.find((x) => x.type === r1.type)
                   const r2HasData = r2?.hasData ?? false
@@ -2491,7 +2503,7 @@ function ThisWeekCard({
                 </tr>
               </thead>
               <tbody>
-                {effectiveSpecialSupply.houseTypes.flatMap((ht) => {
+                {[...effectiveSpecialSupply.houseTypes].sort(byHouseType).flatMap((ht) => {
                   const order = ['다자녀', '신혼부부', '생애최초', '노부모', '신생아', '청년', '기관추천', '이전기관']
                   const findCat = (name: string) => ht.categories.find(c => c.name === name)
                   const assignedRow = order.map(name => {
@@ -3013,7 +3025,7 @@ export default function Home() {
           const matchedNotice = noticeList.find(n => String(n.id || '').trim() === String(item.pblancNo || '').trim())
 
           const rows = Array.from(typeMap.values())
-            .sort((a, b) => a.type.localeCompare(b.type))
+            .sort(byHouseType)
             .map((t) => {
               let spsplyAssigned = 0
               let spsplyApplied = 0
