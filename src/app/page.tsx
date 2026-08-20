@@ -655,8 +655,8 @@ function CompetitionCard({ item, specialSupply }: { item: CompetitionItem; speci
       <div>
         <h3 className="font-bold text-gray-900 text-base leading-snug">{item.houseName}</h3>
         {item.totalSupply != null && item.totalSupply > 0 && (
-          <p className="text-xs font-semibold text-gray-500 mt-1">
-            총 공급 <span className="text-gray-900">{item.totalSupply.toLocaleString()}세대</span>
+          <p className="text-[11px] text-gray-400 mt-1">
+            총 공급 {item.totalSupply.toLocaleString()}세대
           </p>
         )}
       </div>
