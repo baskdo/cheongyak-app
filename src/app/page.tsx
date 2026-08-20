@@ -460,7 +460,7 @@ function ApartmentCard({ item }: { item: ApartmentItem }) {
           <div className="bg-gray-50 rounded-lg px-3 py-2 mt-1">
             <p className="text-xs text-gray-500 mb-1.5">📐 주택형별 (청약홈 최고가 기준)</p>
             <div className="space-y-1">
-              {item.typeDetails.map((d, i) => (
+              {[...item.typeDetails].sort(byHouseType).map((d, i) => (
                 <div key={i} className="flex items-center justify-between gap-1 text-xs">
                   <span className="font-semibold text-blue-600 shrink-0">{d.typeLabel}㎡</span>
                   <span className="text-gray-600 shrink-0">{d.pyeong.toFixed(2)}평형</span>
