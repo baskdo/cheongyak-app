@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { isAnnounceWindow } from '@/lib/announceWindow'
 
 // ===================== TYPES =====================
 type TypeDetail = {
@@ -95,6 +96,7 @@ type ApplyhomeRank1Type = {
   typeLabel: string
   suply: number
   local: number
+  ggOther?: number     // 기타경기 (경기 단지만, etc에 포함된 값)
   etc: number
   total: number
   rate: number
@@ -104,6 +106,7 @@ type ApplyhomeRank2Type = {
   typeLabel: string
   hasData: boolean
   local: number
+  ggOther?: number
   etc: number
   total: number
   rate: number
@@ -924,10 +927,14 @@ function ThisWeekCard({
   notice,
   specialSupply,
   competition,
+  reportMark,
+  onToggleReport,
 }: {
   notice: ApartmentItem
   specialSupply: SpecialSupplyItem | null
   competition: CompetitionItem | null
+  reportMark?: ReportMark          // 보고서 구성 체크 상태 (세부/비교)
+  onToggleReport?: (kind: ReportKind, notice: ApartmentItem) => void
 }) {
   // === 청약홈 직접 조회 폴백 (공공 API에 1순위 데이터 없을 때만 자동 호출) ===
   const [applyhomeData, setApplyhomeData] = useState<ApplyhomeCompetitionData | null>(null)
@@ -936,6 +943,22 @@ function ThisWeekCard({
   // === 청약홈 직접 조회 폴백 (특별공급) — 1순위 폴백과 동일 패턴 ===
   const [applyhomeSpsplyData, setApplyhomeSpsplyData] = useState<ApplyhomeSpsplyData | null>(null)
   const [applyhomeSpsplyLoading, setApplyhomeSpsplyLoading] = useState(false)
+
+  // === 발표 시간대(19:20~20:45 KST) 자동 재조회 ===
+  // 청약홈이 7:30 전후로 결과를 올리면 사용자가 새로고침하지 않아도 20초마다 다시 가져온다.
+  // pollTick이 바뀌면 아래 두 폴백 useEffect가 다시 실행된다 (데이터가 이미 있으면 조건에서 걸러짐).
+  const [pollTick, setPollTick] = useState(0)
+  const [autoPolling, setAutoPolling] = useState(false)
+  useEffect(() => {
+    const tick = () => {
+      const inWin = isAnnounceWindow()
+      setAutoPolling(inWin)
+      if (inWin) setPollTick((t) => t + 1)
+    }
+    const id = setInterval(tick, 20_000)
+    setAutoPolling(isAnnounceWindow())
+    return () => clearInterval(id)
+  }, [])
 
   // 공공 API와 청약홈 폴백 중 "유효한 쪽"을 effective로 통일하여 렌더에 사용.
   // 우선순위: 공공 API > 청약홈 폴백 (공공 API에 데이터 차면 그쪽이 정답)
@@ -1067,6 +1090,7 @@ function ThisWeekCard({
       typeLabel: string
       suply: number
       local: number
+      ggOther: number
       etc: number
       total: number
       rate: number
@@ -1079,6 +1103,7 @@ function ThisWeekCard({
       typeLabel: string
       suply: number
       local: number
+      ggOther: number
       etc: number
     }>()
 
@@ -1095,13 +1120,16 @@ function ThisWeekCard({
       const isLocal = h.reside === '해당지역'
 
       if (!map.has(key)) {
-        map.set(key, { type: key, typeLabel, suply, local: 0, etc: 0 })
+        map.set(key, { type: key, typeLabel, suply, local: 0, ggOther: 0, etc: 0 })
       }
       const entry = map.get(key)!
       // 공급세대는 주택형당 1번만 (해당/기타로 행이 분리되므로 더 큰 값 유지)
       if (suply > entry.suply) entry.suply = suply
       if (isLocal) entry.local += reqCnt
-      else entry.etc += reqCnt
+      else {
+        entry.etc += reqCnt
+        if ((h.reside || '').includes('기타경기')) entry.ggOther += reqCnt
+      }
     })
 
     return Array.from(map.values())
@@ -1123,6 +1151,7 @@ function ThisWeekCard({
       typeLabel: string
       hasData: boolean
       local: number
+      ggOther: number
       etc: number
       total: number
       rate: number
@@ -1131,16 +1160,19 @@ function ThisWeekCard({
     const rank2 = competition.houseTypes.filter((h) => h.rank === '2')
 
     // 주택형별 2순위 집계
-    const map = new Map<string, { local: number; etc: number }>()
+    const map = new Map<string, { local: number; ggOther: number; etc: number }>()
     rank2.forEach((h) => {
       const key = (h.type || '').trim()
       if (!key) return
       const reqCnt = parseInt(h.reqCnt || '0', 10)
       const isLocal = h.reside === '해당지역'
-      if (!map.has(key)) map.set(key, { local: 0, etc: 0 })
+      if (!map.has(key)) map.set(key, { local: 0, ggOther: 0, etc: 0 })
       const e = map.get(key)!
       if (isLocal) e.local += reqCnt
-      else e.etc += reqCnt
+      else {
+        e.etc += reqCnt
+        if ((h.reside || '').includes('기타경기')) e.ggOther += reqCnt
+      }
     })
 
     // 1순위 주택형 순서를 따라가며 2순위 행 생성 (없으면 hasData=false)
@@ -1154,6 +1186,7 @@ function ThisWeekCard({
           typeLabel: r1.typeLabel,
           hasData: true,
           local: r2.local,
+          ggOther: r2.ggOther,
           etc: r2.etc,
           total,
           rate,
@@ -1165,6 +1198,7 @@ function ThisWeekCard({
         typeLabel: r1.typeLabel,
         hasData: false,
         local: 0,
+        ggOther: 0,
         etc: 0,
         total: 0,
         rate: 0,
@@ -1194,6 +1228,7 @@ function ThisWeekCard({
           typeLabel: r1.typeLabel,
           hasData: true,
           local: f.local || 0,
+          ggOther: f.ggOther || 0,
           etc: f.etc || 0,
           total,
           rate,
@@ -1205,6 +1240,7 @@ function ThisWeekCard({
         typeLabel: r1.typeLabel,
         hasData: false,
         local: 0,
+        ggOther: 0,
         etc: 0,
         total: 0,
         rate: 0,
@@ -1254,6 +1290,18 @@ function ThisWeekCard({
     : 0
   const hasRank2Data = rank2ByType.some((r) => r.hasData)
 
+  // === 기타경기 분리 표시 (청약홈과 동일: 해당지역 / 기타경기 / 기타지역) ===
+  // etc(기타)에는 기타경기가 이미 포함되어 있으므로, 열을 분리할 때는 기타지역 = etc - ggOther.
+  // 경기 단지(또는 기타경기 접수가 1건이라도 있는 경우)에만 열을 표시한다.
+  const rank1TotalGg = rank1ByType.reduce((s, r) => s + (r.ggOther || 0), 0)
+  const rank2TotalGg = rank2ByType.filter((r) => r.hasData).reduce((s, r) => s + (r.ggOther || 0), 0)
+  const applyhomeTotalGg = (applyhomeData?.rank1ByType || []).reduce((s, r) => s + (r.ggOther || 0), 0)
+  const applyhomeRank2TotalGg = (applyhomeData?.rank2ByType || []).filter((r) => r.hasData).reduce((s, r) => s + (r.ggOther || 0), 0)
+  const showGg = (notice.region || '').includes('경기')
+    || rank1TotalGg > 0 || rank2TotalGg > 0 || applyhomeTotalGg > 0 || applyhomeRank2TotalGg > 0
+  const etcOnlyOf = (r: { etc: number; ggOther?: number }) => showGg ? r.etc - (r.ggOther || 0) : r.etc
+  const etcOnlyTotal = (etc: number, gg: number) => showGg ? etc - gg : etc
+
   // 1+2순위 컬럼/행 표시 여부 — 화면 표기 전용 플래그.
   // 청약홈과 동일하게: "2순위 접수일 도래" + "실제 2순위 접수 발생(hasRank2Data)"
   // 두 조건을 모두 만족할 때만 1+2순위로 표기한다.
@@ -1296,6 +1344,7 @@ function ThisWeekCard({
       typeLabel: r.typeLabel,
       suply: r.suply,
       local: r.local,
+      ggOther: r.ggOther || 0,
       etc: r.etc,
       total: r.total,
       rate: r.rate,
@@ -1312,6 +1361,7 @@ function ThisWeekCard({
           typeLabel: r1.typeLabel,
           hasData: true,
           local: r2.local,
+          ggOther: r2.ggOther || 0,
           etc: r2.etc,
           total: r2.total,
           rate: r2.rate,
@@ -1323,6 +1373,7 @@ function ThisWeekCard({
         typeLabel: r1.typeLabel,
         hasData: false,
         local: 0,
+        ggOther: 0,
         etc: 0,
         total: 0,
         rate: 0,
@@ -1372,6 +1423,8 @@ function ThisWeekCard({
   const effectiveRank2TotalEtc = hasRank1Data
     ? rank2TotalEtc
     : (applyhomeData?.rank2TotalEtc ?? 0)
+  const effectiveRank1TotalGg = hasRank1Data ? rank1TotalGg : applyhomeTotalGg
+  const effectiveRank2TotalGg = hasRank1Data ? rank2TotalGg : applyhomeRank2TotalGg
   const effectiveRank1GrandTotal = effectiveRank1TotalLocal + effectiveRank1TotalEtc
   const effectiveRank2GrandTotal = effectiveRank2TotalLocal + effectiveRank2TotalEtc
   const effectiveCombinedGrandTotal = effectiveRank1GrandTotal + effectiveRank2GrandTotal
@@ -1564,6 +1617,12 @@ function ThisWeekCard({
 
     if (!caseA && !caseB) return
 
+    // 자동 재조회(pollTick) 중 이미 청약홈 데이터가 들어왔으면 다시 두드리지 않음
+    //   - 1순위 데이터 있음 + (2순위 미도래 또는 2순위 데이터도 있음) → 완료
+    if (pollTick > 0 && applyhomeData?.ok && applyhomeData.totalAll > 0) {
+      if (!rank2Started || applyhomeData.hasRank2) return
+    }
+
     // 시작일 도래 가드:
     //   케이스 A는 1순위 시작일 기준, 케이스 B는 이미 2순위 시작이 확인됨
     if (caseA) {
@@ -1575,7 +1634,7 @@ function ThisWeekCard({
     const fetchApplyhome = async () => {
       setApplyhomeLoading(true)
       try {
-        const res = await fetch(`/api/applyhome-competition?pblancNo=${pblancNo}`)
+        const res = await fetch(`/api/applyhome-competition?pblancNo=${pblancNo}&t=${pollTick}`, { cache: 'no-store' })
         const data: ApplyhomeCompetitionData = await res.json()
         if (!cancelled) {
           setApplyhomeData(data)
@@ -1606,7 +1665,7 @@ function ThisWeekCard({
       setApplyhomeLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasRank1Data, hasRank2Data, notice.id, notice.rank2RceptBgnde])
+  }, [hasRank1Data, hasRank2Data, notice.id, notice.rank2RceptBgnde, pollTick])
 
   // === 청약홈 직접 조회 자동 폴백 (특별공급) ===
   // 조건: 공공 API에 특공 데이터 없음(publicHasSpsply=false)
@@ -1617,6 +1676,8 @@ function ThisWeekCard({
   useEffect(() => {
     if (publicHasSpsply) return // 공공 API에 데이터 있으면 폴백 불필요
     if (isPublicHousing(notice.hompageUrl)) return
+    // 자동 재조회 중 이미 특공 데이터가 들어왔으면 다시 두드리지 않음
+    if (pollTick > 0 && applyhomeSpsplyData?.ok && applyhomeSpsplyData.houseTypes.length > 0) return
 
     const pblancNo = String(notice.id || '').trim()
     if (!/^\d{6,12}$/.test(pblancNo)) return
@@ -1635,7 +1696,8 @@ function ThisWeekCard({
         const params = new URLSearchParams()
         params.set('pblancNo', pblancNo)
         if (notice.name) params.set('houseNm', notice.name)
-        const res = await fetch(`/api/spsply-scrape?${params.toString()}`)
+        if (pollTick > 0) params.set('t', String(pollTick))
+        const res = await fetch(`/api/spsply-scrape?${params.toString()}`, { cache: 'no-store' })
         const data: ApplyhomeSpsplyData = await res.json()
         if (!cancelled) {
           setApplyhomeSpsplyData(data)
@@ -1664,7 +1726,7 @@ function ThisWeekCard({
       setApplyhomeSpsplyLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicHasSpsply, notice.id])
+  }, [publicHasSpsply, notice.id, pollTick])
 
   // hasApplyhomeData 정의는 effective 변수 계산을 위해 위쪽(합계 행 직후)으로 이동됨
 
@@ -1685,6 +1747,26 @@ function ThisWeekCard({
             <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${STATUS_DOT[notice.status]}`} />
             {notice.status}
           </span>
+          {onToggleReport && (
+            <span className="inline-flex items-center gap-1 ml-1">
+              <button
+                type="button"
+                onClick={() => onToggleReport('detail', notice)}
+                title="보고서 세부조회에 추가/제거"
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${reportMark === 'detail' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-300 hover:border-blue-400'}`}
+              >
+                {reportMark === 'detail' ? '✓ ' : ''}세부
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleReport('compare', notice)}
+                title="보고서 비교조회에 추가/제거"
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${reportMark === 'compare' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-500 border-gray-300 hover:border-emerald-400'}`}
+              >
+                {reportMark === 'compare' ? '✓ ' : ''}비교
+              </button>
+            </span>
+          )}
         </div>
         {/* 특공/1순위 일정: 한 줄, 색상 구분 */}
         {/* 특공일이 없는 단지(LH 공공분양 등)는 1순위만 표시 */}
@@ -1986,6 +2068,7 @@ function ThisWeekCard({
                     <th className="border border-rose-100 px-1 py-1 font-semibold" rowSpan={2}>구분</th>
                   )}
                   <th className="border border-rose-100 px-1 py-1 font-semibold">해당<br/>지역</th>
+                  {showGg && (<th className="border border-rose-100 px-1 py-1 font-semibold">기타<br/>경기</th>)}
                   <th className="border border-rose-100 px-1 py-1 font-semibold">기타<br/>지역</th>
                   <th className="border border-rose-100 px-1 py-1 font-semibold">소계</th>
                   <th className="border border-rose-100 px-1 py-1 font-semibold">평균경쟁률</th>
@@ -2015,8 +2098,11 @@ function ThisWeekCard({
                         <td className="border border-gray-200 px-1 py-0.5 text-center text-gray-700">
                           {r1.local.toLocaleString()}
                         </td>
+                        {showGg && (<td className="border border-gray-200 px-1 py-0.5 text-center text-gray-700">
+                          {(r1.ggOther || 0).toLocaleString()}
+                        </td>)}
                         <td className="border border-gray-200 px-1 py-0.5 text-center text-gray-700">
-                          {r1.etc.toLocaleString()}
+                          {etcOnlyOf(r1).toLocaleString()}
                         </td>
                         <td className={`border border-gray-200 px-1 py-0.5 text-center font-bold ${r1.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                           {r1.total.toLocaleString()}
@@ -2045,8 +2131,11 @@ function ThisWeekCard({
                       <td className="border border-gray-200 px-1 py-0.5 text-center text-gray-700">
                         {r1.local.toLocaleString()}
                       </td>
+                      {showGg && (<td className="border border-gray-200 px-1 py-0.5 text-center text-gray-700">
+                        {(r1.ggOther || 0).toLocaleString()}
+                      </td>)}
                       <td className="border border-gray-200 px-1 py-0.5 text-center text-gray-700">
-                        {r1.etc.toLocaleString()}
+                        {etcOnlyOf(r1).toLocaleString()}
                       </td>
                       <td className={`border border-gray-200 px-1 py-0.5 text-center font-bold ${r1.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                         {r1.total.toLocaleString()}
@@ -2075,8 +2164,11 @@ function ThisWeekCard({
                       <td className={`border border-gray-200 px-1 py-0.5 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
                         {r2HasData ? r2!.local.toLocaleString() : '-'}
                       </td>
+                      {showGg && (<td className={`border border-gray-200 px-1 py-0.5 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
+                        {r2HasData ? (r2!.ggOther || 0).toLocaleString() : '-'}
+                      </td>)}
                       <td className={`border border-gray-200 px-1 py-0.5 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
-                        {r2HasData ? r2!.etc.toLocaleString() : '-'}
+                        {r2HasData ? etcOnlyOf(r2!).toLocaleString() : '-'}
                       </td>
                       <td className={`border border-gray-200 px-1 py-0.5 text-center font-bold ${r2HasData && r2!.total > 0 ? 'text-orange-600' : 'text-gray-300'}`}>
                         {r2HasData ? r2!.total.toLocaleString() : '-'}
@@ -2098,8 +2190,11 @@ function ThisWeekCard({
                     <td className="border border-amber-200 px-1 py-0.5 text-center font-bold text-amber-800">
                       {rank1TotalLocal.toLocaleString()}
                     </td>
+                    {showGg && (<td className="border border-amber-200 px-1 py-0.5 text-center font-bold text-amber-800">
+                      {rank1TotalGg.toLocaleString()}
+                    </td>)}
                     <td className="border border-amber-200 px-1 py-0.5 text-center font-bold text-amber-800">
-                      {rank1TotalEtc.toLocaleString()}
+                      {etcOnlyTotal(rank1TotalEtc, rank1TotalGg).toLocaleString()}
                     </td>
                     <td className="border border-amber-200 px-1 py-0.5 text-center font-extrabold text-red-700">
                       {rank1GrandTotal.toLocaleString()}
@@ -2125,8 +2220,11 @@ function ThisWeekCard({
                       <td className="border border-amber-200 px-1 py-0.5 text-center font-bold text-amber-800">
                         {rank1TotalLocal.toLocaleString()}
                       </td>
+                      {showGg && (<td className="border border-amber-200 px-1 py-0.5 text-center font-bold text-amber-800">
+                        {rank1TotalGg.toLocaleString()}
+                      </td>)}
                       <td className="border border-amber-200 px-1 py-0.5 text-center font-bold text-amber-800">
-                        {rank1TotalEtc.toLocaleString()}
+                        {etcOnlyTotal(rank1TotalEtc, rank1TotalGg).toLocaleString()}
                       </td>
                       <td className="border border-amber-200 px-1 py-0.5 text-center font-extrabold text-red-700">
                         {rank1GrandTotal.toLocaleString()}
@@ -2155,8 +2253,11 @@ function ThisWeekCard({
                       <td className={`border border-amber-200 px-1 py-0.5 text-center font-bold ${hasRank2Data ? 'text-amber-800' : 'text-gray-300'}`}>
                         {hasRank2Data ? rank2TotalLocal.toLocaleString() : '-'}
                       </td>
+                      {showGg && (<td className={`border border-amber-200 px-1 py-0.5 text-center font-bold ${hasRank2Data ? 'text-amber-800' : 'text-gray-300'}`}>
+                        {hasRank2Data ? rank2TotalGg.toLocaleString() : '-'}
+                      </td>)}
                       <td className={`border border-amber-200 px-1 py-0.5 text-center font-bold ${hasRank2Data ? 'text-amber-800' : 'text-gray-300'}`}>
-                        {hasRank2Data ? rank2TotalEtc.toLocaleString() : '-'}
+                        {hasRank2Data ? etcOnlyTotal(rank2TotalEtc, rank2TotalGg).toLocaleString() : '-'}
                       </td>
                       <td className={`border border-amber-200 px-1 py-0.5 text-center font-extrabold ${hasRank2Data ? 'text-orange-700' : 'text-gray-300'}`}>
                         {hasRank2Data ? rank2GrandTotal.toLocaleString() : '-'}
@@ -2173,7 +2274,7 @@ function ThisWeekCard({
           <p className="text-[10px] text-gray-400 mt-1.5">
             {isRank2StartedToday
               ? '※ 전체 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미'
-              : '※ 평균 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
+              : '※ 평균 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다' + (showGg ? ' · 기타경기=경기 거주, 기타지역=경기 외 수도권' : '')}
           </p>
         </div>
       )}
@@ -2184,7 +2285,7 @@ function ThisWeekCard({
       {!hasRank1Data && !isPublicHousingNotice && applyhomeLoading && (
         <div className="mt-4 bg-purple-50 rounded-xl p-3 text-center">
           <p className="text-sm font-semibold text-purple-700">⏳ 청약홈에서 가져오는 중...</p>
-          <p className="text-xs text-purple-600 mt-1">잠시만 기다려주세요</p>
+          <p className="text-xs text-purple-600 mt-1">{autoPolling ? '발표 시간대 — 20초마다 자동으로 다시 확인합니다' : '잠시만 기다려주세요'}</p>
         </div>
       )}
 
@@ -2214,6 +2315,7 @@ function ThisWeekCard({
                     <th className="border border-purple-100 px-1.5 py-1.5 font-semibold" rowSpan={2}>구분</th>
                   )}
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">해당<br/>지역</th>
+                  {showGg && (<th className="border border-purple-100 px-1.5 py-1.5 font-semibold">기타<br/>경기</th>)}
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">기타<br/>지역</th>
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">소계</th>
                   <th className="border border-purple-100 px-1.5 py-1.5 font-semibold">평균경쟁률</th>
@@ -2243,8 +2345,11 @@ function ThisWeekCard({
                         <td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
                           {r1.local.toLocaleString()}
                         </td>
+                        {showGg && (<td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
+                          {(r1.ggOther || 0).toLocaleString()}
+                        </td>)}
                         <td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
-                          {r1.etc.toLocaleString()}
+                          {etcOnlyOf(r1).toLocaleString()}
                         </td>
                         <td className={`border border-gray-200 px-1.5 py-1 text-center font-bold ${r1.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                           {r1.total.toLocaleString()}
@@ -2268,8 +2373,11 @@ function ThisWeekCard({
                         <td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
                           {r1.local.toLocaleString()}
                         </td>
+                        {showGg && (<td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
+                          {(r1.ggOther || 0).toLocaleString()}
+                        </td>)}
                         <td className="border border-gray-200 px-1.5 py-1 text-center text-gray-700">
-                          {r1.etc.toLocaleString()}
+                          {etcOnlyOf(r1).toLocaleString()}
                         </td>
                         <td className={`border border-gray-200 px-1.5 py-1 text-center font-bold ${r1.total > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                           {r1.total.toLocaleString()}
@@ -2290,8 +2398,11 @@ function ThisWeekCard({
                         <td className={`border border-gray-200 px-1.5 py-1 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
                           {r2HasData ? r2!.local.toLocaleString() : '-'}
                         </td>
+                        {showGg && (<td className={`border border-gray-200 px-1.5 py-1 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
+                          {r2HasData ? (r2!.ggOther || 0).toLocaleString() : '-'}
+                        </td>)}
                         <td className={`border border-gray-200 px-1.5 py-1 text-center ${r2HasData ? 'text-gray-700' : 'text-gray-300'}`}>
-                          {r2HasData ? r2!.etc.toLocaleString() : '-'}
+                          {r2HasData ? etcOnlyOf(r2!).toLocaleString() : '-'}
                         </td>
                         <td className={`border border-gray-200 px-1.5 py-1 text-center font-bold ${r2HasData && r2!.total > 0 ? 'text-orange-600' : 'text-gray-300'}`}>
                           {r2HasData ? r2!.total.toLocaleString() : '-'}
@@ -2312,8 +2423,11 @@ function ThisWeekCard({
                     <td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
                       {applyhomeData.totalLocal.toLocaleString()}
                     </td>
+                    {showGg && (<td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
+                      {applyhomeTotalGg.toLocaleString()}
+                    </td>)}
                     <td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
-                      {applyhomeData.totalEtc.toLocaleString()}
+                      {etcOnlyTotal(applyhomeData.totalEtc, applyhomeTotalGg).toLocaleString()}
                     </td>
                     <td className="border border-amber-200 px-1.5 py-1 text-center font-extrabold text-red-700">
                       {applyhomeData.totalAll.toLocaleString()}
@@ -2336,8 +2450,11 @@ function ThisWeekCard({
                       <td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
                         {applyhomeData.totalLocal.toLocaleString()}
                       </td>
+                      {showGg && (<td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
+                        {applyhomeTotalGg.toLocaleString()}
+                      </td>)}
                       <td className="border border-amber-200 px-1.5 py-1 text-center font-bold text-amber-800">
-                        {applyhomeData.totalEtc.toLocaleString()}
+                        {etcOnlyTotal(applyhomeData.totalEtc, applyhomeTotalGg).toLocaleString()}
                       </td>
                       <td className="border border-amber-200 px-1.5 py-1 text-center font-extrabold text-red-700">
                         {applyhomeData.totalAll.toLocaleString()}
@@ -2362,8 +2479,11 @@ function ThisWeekCard({
                       <td className={`border border-amber-200 px-1.5 py-1 text-center font-bold ${applyhomeData.hasRank2 ? 'text-amber-800' : 'text-gray-300'}`}>
                         {applyhomeData.hasRank2 ? (applyhomeData.rank2TotalLocal ?? 0).toLocaleString() : '-'}
                       </td>
+                      {showGg && (<td className={`border border-amber-200 px-1.5 py-1 text-center font-bold ${applyhomeData.hasRank2 ? 'text-amber-800' : 'text-gray-300'}`}>
+                        {applyhomeData.hasRank2 ? (applyhomeRank2TotalGg ?? 0).toLocaleString() : '-'}
+                      </td>)}
                       <td className={`border border-amber-200 px-1.5 py-1 text-center font-bold ${applyhomeData.hasRank2 ? 'text-amber-800' : 'text-gray-300'}`}>
-                        {applyhomeData.hasRank2 ? (applyhomeData.rank2TotalEtc ?? 0).toLocaleString() : '-'}
+                        {applyhomeData.hasRank2 ? (etcOnlyTotal(applyhomeData.rank2TotalEtc ?? 0, applyhomeRank2TotalGg)).toLocaleString() : '-'}
                       </td>
                       <td className={`border border-amber-200 px-1.5 py-1 text-center font-extrabold ${applyhomeData.hasRank2 ? 'text-orange-700' : 'text-gray-300'}`}>
                         {applyhomeData.hasRank2 ? (applyhomeData.rank2TotalAll ?? 0).toLocaleString() : '-'}
@@ -2382,7 +2502,7 @@ function ThisWeekCard({
           <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
             {isRank2StartedToday
               ? '※ 출처: 청약홈 (applyhome.co.kr) / 전체 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식)'
-              : '※ 출처: 청약홈 (applyhome.co.kr) / 평균 경쟁률 분모는 1순위 공급세대 기준 · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
+              : '※ 출처: 청약홈 (applyhome.co.kr) / 평균 경쟁률 분모는 1순위 공급세대 기준 · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다' + (showGg ? ' · 기타경기=경기 거주, 기타지역=경기 외 수도권' : '')}
           </p>
         </div>
       )}
@@ -2640,6 +2760,7 @@ function ThisWeekCard({
                     <th rowSpan={2} style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>구분</th>
                   )}
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>해당<br/>지역</th>
+                  {showGg && (<th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>기타<br/>경기</th>)}
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>기타<br/>지역</th>
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>소계</th>
                   <th style={{ border: '1px solid #fda4af', padding: '8px 4px', fontWeight: 600, verticalAlign: 'middle' }}>평균경쟁률</th>
@@ -2663,7 +2784,8 @@ function ThisWeekCard({
                         <td style={{ border: '1px solid #e5e7eb', padding: '8px 4px', textAlign: 'center', fontWeight: 600, color: '#be123c', verticalAlign: 'middle' }}>{r1.typeLabel}</td>
                         <td style={{ border: '1px solid #e5e7eb', padding: '8px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.suply.toLocaleString()}</td>
                         <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.local.toLocaleString()}</td>
-                        <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.etc.toLocaleString()}</td>
+                        {showGg && (<td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{(r1.ggOther || 0).toLocaleString()}</td>)}
+                        <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{etcOnlyOf(r1).toLocaleString()}</td>
                         <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: r1.total > 0 ? '#dc2626' : '#9ca3af', verticalAlign: 'middle' }}>{r1.total.toLocaleString()}</td>
                         <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: r1.rate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
                           {r1.suply > 0
@@ -2681,7 +2803,8 @@ function ThisWeekCard({
                       <td rowSpan={2} style={{ border: '1px solid #e5e7eb', padding: '8px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.suply.toLocaleString()}</td>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600, fontSize: '11px', backgroundColor: '#eff6ff', verticalAlign: 'middle' }}>1순위</td>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.local.toLocaleString()}</td>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{r1.etc.toLocaleString()}</td>
+                      {showGg && (<td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{(r1.ggOther || 0).toLocaleString()}</td>)}
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#4b5563', verticalAlign: 'middle' }}>{etcOnlyOf(r1).toLocaleString()}</td>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: r1.total > 0 ? '#dc2626' : '#9ca3af', verticalAlign: 'middle' }}>{r1.total.toLocaleString()}</td>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: r1.rate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
                         {r1.suply > 0
@@ -2701,7 +2824,8 @@ function ThisWeekCard({
                     <tr key={`${r1.type}-r2`}>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#c2410c', fontWeight: 600, fontSize: '11px', backgroundColor: '#fff7ed', verticalAlign: 'middle' }}>2순위</td>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: r2HasData ? '#4b5563' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? r2!.local.toLocaleString() : '-'}</td>
-                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: r2HasData ? '#4b5563' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? r2!.etc.toLocaleString() : '-'}</td>
+                      {showGg && (<td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: r2HasData ? '#4b5563' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? (r2!.ggOther || 0).toLocaleString() : '-'}</td>)}
+                      <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: r2HasData ? '#4b5563' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? etcOnlyOf(r2!).toLocaleString() : '-'}</td>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', fontWeight: 700, color: r2HasData && r2!.total > 0 ? '#ea580c' : '#d1d5db', verticalAlign: 'middle' }}>{r2HasData ? r2!.total.toLocaleString() : '-'}</td>
                       <td style={{ border: '1px solid #e5e7eb', padding: '6px 4px', textAlign: 'center', color: '#d1d5db', verticalAlign: 'middle' }}>-</td>
                     </tr>
@@ -2713,7 +2837,8 @@ function ThisWeekCard({
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>합계</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{effectiveRank1TotalSuply.toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{effectiveRank1TotalLocal.toLocaleString()}</td>
-                    <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{effectiveRank1TotalEtc.toLocaleString()}</td>
+                    {showGg && (<td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{effectiveRank1TotalGg.toLocaleString()}</td>)}
+                    <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{etcOnlyTotal(effectiveRank1TotalEtc, effectiveRank1TotalGg).toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', verticalAlign: 'middle' }}>{effectiveRank1GrandTotal.toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: effectiveRank1AvgRate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
                       {effectiveRank1TotalSuply > 0
@@ -2728,7 +2853,8 @@ function ThisWeekCard({
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{effectiveRank1TotalSuply.toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', color: '#374151', fontWeight: 600, fontSize: '11px', backgroundColor: '#fde68a', verticalAlign: 'middle' }}>일반공급</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(effectiveRank1TotalLocal + (effectiveHasRank2 ? effectiveRank2TotalLocal : 0)).toLocaleString()}</td>
-                    <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(effectiveRank1TotalEtc + (effectiveHasRank2 ? effectiveRank2TotalEtc : 0)).toLocaleString()}</td>
+                    {showGg && (<td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{(effectiveRank1TotalGg + (effectiveHasRank2 ? effectiveRank2TotalGg : 0)).toLocaleString()}</td>)}
+                    <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: '#92400e', verticalAlign: 'middle' }}>{etcOnlyTotal(effectiveRank1TotalEtc + (effectiveHasRank2 ? effectiveRank2TotalEtc : 0), effectiveRank1TotalGg + (effectiveHasRank2 ? effectiveRank2TotalGg : 0)).toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 800, color: '#b91c1c', verticalAlign: 'middle' }}>{effectiveCombinedGrandTotal.toLocaleString()}</td>
                     <td style={{ border: '1px solid #fcd34d', padding: '10px 4px', textAlign: 'center', fontWeight: 700, color: effectiveCombinedAvgRate >= 1 ? '#be123c' : '#6b7280', verticalAlign: 'middle' }}>
                       {effectiveRank1TotalSuply > 0
@@ -2749,13 +2875,208 @@ function ThisWeekCard({
             <div style={{ marginTop: '8px', fontSize: '10px', color: '#9ca3af' }}>
               {isRank2StartedToday
                 ? '※ 전체 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) / 2순위 미접수 주택형은 1순위 마감 의미'
-                : '※ 평균 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다'}
+                : '※ 평균 경쟁률 분모는 1순위 공급세대 기준 (청약홈 방식) · 2순위 접수 시작일 이후 1+2순위 합산이 표시됩니다' + (showGg ? ' · 기타경기=경기 거주, 기타지역=경기 외 수도권' : '')}
               <br />출처: 청약홈 (한국부동산원){useApplyhomeFallback ? ' · 청약홈 사이트 직접 조회' : ''}
             </div>
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+// ===================== 보고서 구성 (세부조회 / 비교조회 선택) =====================
+// 선택은 localStorage에 저장 → 특공 발표일·1순위·2순위 매일 같은 구성으로 /report 를 연다.
+type ReportKind = 'detail' | 'compare'
+type ReportMark = ReportKind | undefined
+type ReportSelItem = { id: string; name: string; region: string }
+type ReportSelection = { detail: ReportSelItem[]; compare: ReportSelItem[] }
+const REPORT_SEL_KEY = 'cyhome_report_selection_v1'
+const EMPTY_REPORT_SEL: ReportSelection = { detail: [], compare: [] }
+
+function loadReportSelection(): ReportSelection {
+  if (typeof window === 'undefined') return EMPTY_REPORT_SEL
+  try {
+    const raw = window.localStorage.getItem(REPORT_SEL_KEY)
+    if (!raw) return EMPTY_REPORT_SEL
+    const parsed = JSON.parse(raw) as Partial<ReportSelection>
+    return {
+      detail: Array.isArray(parsed.detail) ? parsed.detail : [],
+      compare: Array.isArray(parsed.compare) ? parsed.compare : [],
+    }
+  } catch {
+    return EMPTY_REPORT_SEL
+  }
+}
+function saveReportSelection(sel: ReportSelection) {
+  try { window.localStorage.setItem(REPORT_SEL_KEY, JSON.stringify(sel)) } catch { /* 무시 */ }
+}
+function reportUrl(sel: ReportSelection): string {
+  const q = new URLSearchParams()
+  if (sel.detail.length) q.set('detail', sel.detail.map((d) => d.id).join(','))
+  if (sel.compare.length) q.set('compare', sel.compare.map((d) => d.id).join(','))
+  return `/report?${q.toString()}`
+}
+
+function ReportBuilderPanel({
+  selection,
+  onToggle,
+  onClear,
+  allItems,
+}: {
+  selection: ReportSelection
+  onToggle: (kind: ReportKind, item: ReportSelItem) => void
+  onClear: () => void
+  allItems: ApartmentItem[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const total = selection.detail.length + selection.compare.length
+
+  // === 텔레그램 알림 예약 (서버 저장) ===
+  const [watch, setWatch] = useState<{ id: number; title: string; detail: string[]; compare: string[] } | null>(null)
+  const [adminKey, setAdminKey] = useState('')
+  const [watchBusy, setWatchBusy] = useState(false)
+  const [watchMsg, setWatchMsg] = useState('')
+  useEffect(() => {
+    try { setAdminKey(window.localStorage.getItem('cyhome_admin_key') || '') } catch { /* 무시 */ }
+    fetch('/api/notify-watch', { cache: 'no-store' }).then((r) => r.json()).then((j) => { if (j?.ok) setWatch(j.watch) }).catch(() => {})
+  }, [])
+  const saveAdminKey = (k: string) => { setAdminKey(k); try { window.localStorage.setItem('cyhome_admin_key', k) } catch { /* 무시 */ } }
+  const reserveWatch = async () => {
+    if (selection.detail.length === 0) { setWatchMsg('세부조회 단지를 1개 이상 선택하세요'); return }
+    if (!adminKey) { setWatchMsg('관리 키를 입력하세요 (Vercel의 CRON_SECRET 값)'); return }
+    setWatchBusy(true); setWatchMsg('')
+    try {
+      const res = await fetch('/api/notify-watch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ detail: selection.detail.map((d) => d.id), compare: selection.compare.map((d) => d.id), title: selection.detail.map((d) => d.name).join(' / ') }),
+      })
+      const j = await res.json()
+      if (j?.ok) { setWatch(j.watch); setWatchMsg('예약됨 — 발표 시각에 텔레그램으로 보고서가 갑니다') }
+      else setWatchMsg(j?.error || '예약 실패')
+    } catch (e) { setWatchMsg(String(e)) } finally { setWatchBusy(false) }
+  }
+  const cancelWatch = async () => {
+    if (!adminKey) { setWatchMsg('관리 키를 입력하세요'); return }
+    setWatchBusy(true); setWatchMsg('')
+    try {
+      const res = await fetch('/api/notify-watch', { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
+      const j = await res.json()
+      if (j?.ok) { setWatch(null); setWatchMsg('예약 해제됨') } else setWatchMsg(j?.error || '해제 실패')
+    } catch (e) { setWatchMsg(String(e)) } finally { setWatchBusy(false) }
+  }
+  const results = q.trim().length >= 2
+    ? allItems.filter((i) => i.name.includes(q.trim())).slice(0, 8)
+    : []
+  const markOf = (id: string): ReportMark =>
+    selection.detail.some((d) => d.id === id) ? 'detail'
+    : selection.compare.some((d) => d.id === id) ? 'compare' : undefined
+
+  const List = ({ kind, label, color }: { kind: ReportKind; label: string; color: string }) => (
+    <div className="mb-3">
+      <p className={`text-[11px] font-bold ${color} mb-1`}>{label} <span className="text-gray-400 font-normal">({selection[kind].length})</span></p>
+      {selection[kind].length === 0 ? (
+        <p className="text-[11px] text-gray-400">카드의 [{kind === 'detail' ? '세부' : '비교'}] 버튼 또는 아래 검색으로 추가</p>
+      ) : (
+        <ul className="space-y-1">
+          {selection[kind].map((it) => (
+            <li key={it.id} className="flex items-center justify-between gap-1 text-[11px] bg-gray-50 rounded px-2 py-1">
+              <span className="truncate text-gray-800">{it.name}</span>
+              <button type="button" onClick={() => onToggle(kind, it)} className="text-gray-400 hover:text-red-500 flex-shrink-0" title="제거">✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+
+  return (
+    <aside className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-gray-700">📝 보고서 구성</p>
+        <button type="button" onClick={() => setOpen((o) => !o)} className="lg:hidden text-xs text-blue-600">
+          {open ? '접기' : `펼치기 (${total})`}
+        </button>
+      </div>
+      <div className={`${open ? 'block' : 'hidden'} lg:block mt-3`}>
+        <List kind="detail" label="세부조회 (타입별 표 + 멘트)" color="text-blue-700" />
+        <List kind="compare" label="비교조회 (한 줄 요약)" color="text-emerald-700" />
+
+        <div className="mb-3">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="단지명으로 추가 (2글자 이상)"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-400"
+          />
+          {results.length > 0 && (
+            <ul className="mt-1 border border-gray-100 rounded-lg divide-y max-h-56 overflow-y-auto">
+              {results.map((i) => {
+                const m = markOf(i.id)
+                const it: ReportSelItem = { id: i.id, name: i.name, region: i.region }
+                return (
+                  <li key={i.id} className="flex items-center gap-1 px-2 py-1 text-[11px]">
+                    <span className="flex-1 truncate" title={`${i.name} (${i.rceptBgnde})`}>
+                      {i.name} <span className="text-gray-400">{formatShortDate(i.rceptBgnde)}</span>
+                    </span>
+                    <button type="button" onClick={() => onToggle('detail', it)} className={`px-1.5 rounded border ${m === 'detail' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-500'}`}>세부</button>
+                    <button type="button" onClick={() => onToggle('compare', it)} className={`px-1.5 rounded border ${m === 'compare' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 text-gray-500'}`}>비교</button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {q.trim().length >= 2 && results.length === 0 && (
+            <p className="text-[10px] text-gray-400 mt-1">검색 결과 없음 — 기간 필터를 넓히면 과거 단지도 검색됩니다</p>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <a
+            href={total > 0 ? reportUrl(selection) : undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled={total === 0}
+            className={`flex-1 text-center text-xs font-bold py-2 rounded-lg ${total > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 pointer-events-none'}`}
+          >
+            📄 보고서 보기
+          </a>
+          <button type="button" onClick={onClear} disabled={total === 0} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500 disabled:opacity-40">초기화</button>
+        </div>
+        <p className="text-[10px] text-gray-400 mt-2">선택은 이 브라우저에 저장되어 다음에 그대로 유지됩니다.</p>
+
+        {/* 텔레그램 알림 예약 */}
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <p className="text-[11px] font-bold text-gray-700 mb-1">🔔 텔레그램 알림 예약</p>
+          {watch ? (
+            <div className="text-[11px] bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 mb-2">
+              <p className="font-semibold text-emerald-800 truncate" title={watch.title}>예약 중: {watch.title || `${watch.detail.length}개 단지`}</p>
+              <p className="text-emerald-700">세부 {watch.detail.length} · 비교 {watch.compare.length} — 특공/1순위/2순위 발표 시각에 자동 발송</p>
+            </div>
+          ) : (
+            <p className="text-[11px] text-gray-400 mb-2">현재 선택(세부/비교)을 서버에 저장하면 발표 시각(19:30 전후)에 보고서를 텔레그램으로 보냅니다.</p>
+          )}
+          <input
+            type="password"
+            value={adminKey}
+            onChange={(e) => saveAdminKey(e.target.value)}
+            placeholder="관리 키 (CRON_SECRET)"
+            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs mb-2 focus:outline-none focus:border-blue-400"
+          />
+          <div className="flex gap-2">
+            <button type="button" onClick={reserveWatch} disabled={watchBusy || selection.detail.length === 0}
+              className="flex-1 text-xs font-bold py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400">
+              {watchBusy ? '처리 중…' : watch ? '현재 선택으로 다시 예약' : '알림 예약'}
+            </button>
+            {watch && (
+              <button type="button" onClick={cancelWatch} disabled={watchBusy} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500">해제</button>
+            )}
+          </div>
+          {watchMsg && <p className="text-[10px] mt-1.5 text-gray-600">{watchMsg}</p>}
+        </div>
+      </div>
+    </aside>
   )
 }
 
@@ -2828,6 +3149,27 @@ export default function Home() {
   const [thisWeekKeyword, setThisWeekKeyword] = useState('')
   const [thisWeekSearchInput, setThisWeekSearchInput] = useState('')
   const [thisWeekPeriod, setThisWeekPeriod] = useState<string>('thisweek') // 'thisweek' | '3m' | '2026' | '2025' | ...
+
+  // 보고서 구성 선택 (세부/비교) — localStorage 동기화
+  const [reportSel, setReportSel] = useState<ReportSelection>(EMPTY_REPORT_SEL)
+  useEffect(() => { setReportSel(loadReportSelection()) }, [])
+  const toggleReportSel = useCallback((kind: ReportKind, item: ReportSelItem) => {
+    setReportSel((prev) => {
+      const other: ReportKind = kind === 'detail' ? 'compare' : 'detail'
+      const inKind = prev[kind].some((d) => d.id === item.id)
+      const next: ReportSelection = {
+        ...prev,
+        [kind]: inKind ? prev[kind].filter((d) => d.id !== item.id) : [...prev[kind], item],
+        [other]: prev[other].filter((d) => d.id !== item.id), // 세부/비교 동시 선택 불가
+      } as ReportSelection
+      saveReportSelection(next)
+      return next
+    })
+  }, [])
+  const clearReportSel = useCallback(() => { setReportSel(EMPTY_REPORT_SEL); saveReportSelection(EMPTY_REPORT_SEL) }, [])
+  const reportMarkOf = useCallback((id: string): ReportMark =>
+    reportSel.detail.some((d) => d.id === id) ? 'detail'
+    : reportSel.compare.some((d) => d.id === id) ? 'compare' : undefined, [reportSel])
 
   const yearButtons = getFixedYearButtons()
 
@@ -3500,7 +3842,11 @@ export default function Home() {
 
         {/* ===== 금주 접수현황 탭 ===== */}
         {activeTab === 'thisweek' && (
-          <>
+          <div className="lg:flex lg:gap-4 lg:items-start">
+          <div className="lg:w-72 lg:flex-shrink-0 lg:sticky lg:top-4 lg:order-last mb-4 lg:mb-0">
+            <ReportBuilderPanel selection={reportSel} onToggle={toggleReportSel} onClear={clearReportSel} allItems={items} />
+          </div>
+          <div className="flex-1 min-w-0">
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-4">
               <div>
                 <div className="flex items-center justify-between gap-2">
@@ -3627,7 +3973,16 @@ export default function Home() {
                         const noticeKey = String(notice.id || '').trim()
                         const matched = spsplyItems.find(s => String(s.pblancNo || '').trim() === noticeKey) || null
                         const matchedCmpet = cmpetItems.find(c => String(c.pblancNo || '').trim() === noticeKey) || null
-                        return <ThisWeekCard key={notice.id} notice={notice} specialSupply={matched} competition={matchedCmpet} />
+                        return (
+                          <ThisWeekCard
+                            key={notice.id}
+                            notice={notice}
+                            specialSupply={matched}
+                            competition={matchedCmpet}
+                            reportMark={reportMarkOf(noticeKey)}
+                            onToggleReport={(kind, n) => toggleReportSel(kind, { id: String(n.id || '').trim(), name: n.name, region: n.region })}
+                          />
+                        )
                       })
                     ) : (
                       <div className="col-span-3 text-center py-16 text-gray-300">
@@ -3642,7 +3997,8 @@ export default function Home() {
                 </>
               )
             })()}
-          </>
+          </div>
+          </div>
         )}
       </div>
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { applyhomeFetchCache } from '@/lib/announceWindow'
 
 // 청약홈 특별공급 신청현황 페이지를 직접 조회해서 정형화된 JSON으로 반환
 // 사용 시점: 공공 API(/api/special-supply)에 데이터가 없는 단지에 한해 폴백 호출
@@ -17,6 +18,8 @@ import { NextResponse } from 'next/server'
 //         (상주북천 하늘채 파크원: 5개 주택형 중 3개만 표시, 합계 206→130)
 //   수정: "배정세대수" 행의 위치를 먼저 모두 찾은 뒤, 인접한 두 배정행 사이를 하나의 블록으로 처리
 //         지역행은 위치 인덱스가 아니라 라벨("해당지역"/"기타경기"/"기타지역")로 검색
+
+export const dynamic = 'force-dynamic'
 
 // =============== 응답 타입 ===============
 
@@ -393,7 +396,8 @@ export async function GET(request: Request) {
         'Origin': 'https://www.applyhome.co.kr',
         'X-Requested-With': 'XMLHttpRequest',
       },
-      next: { revalidate: 300 }, // 5분 (1순위 폴백과 동일)
+      // 발표 시간대(19:20~20:45 KST)는 캐시 없이 직접 조회, 그 외 5분 캐시
+      ...applyhomeFetchCache(),
     })
 
     if (!res.ok) {

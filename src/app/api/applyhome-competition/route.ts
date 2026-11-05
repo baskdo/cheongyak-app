@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { applyhomeFetchCache } from '@/lib/announceWindow'
 
 // 청약홈 경쟁률 페이지를 직접 조회해서 정형화된 JSON으로 반환
 // 사용 시점: 공공 API(/api/competition)에 데이터가 없는 단지에 한해 폴백 호출
@@ -6,6 +7,9 @@ import { NextResponse } from 'next/server'
 // 캐시: 5분 (revalidate=300) — 같은 단지 5분 내 재호출 시 청약홈 안 두드림
 //
 // [v2] 1순위 + 2순위 + 1·2순위 총계 모두 집계 (2순위 데이터도 같은 페이지에 포함)
+// [v3] 경기 단지의 '기타경기' 행 누락 수정 — 해당지역 외 모든 행을 기타(etc)에 합산, 경쟁률 = 총접수/공급세대
+
+export const dynamic = 'force-dynamic'
 
 // =============== 타입 ===============
 
@@ -15,9 +19,11 @@ type Rank1ByType = {
   typeLabel: string    // 표시용 ("48")
   suply: number        // 공급세대수
   local: number        // 1순위 해당지역 접수건수
-  etc: number          // 1순위 기타지역 접수건수
-  total: number        // 1순위 합계 (해당+기타)
-  rate: number         // 1순위 경쟁률 (해당지역 기준 청약홈 표시값)
+  ggOther: number      // 1순위 기타경기 접수건수 (경기 단지에만 존재, 그 외 0)
+  etc: number          // 1순위 기타지역 접수건수 (해당지역 외 전부 = 기타경기 + 기타지역)
+  total: number        // 1순위 합계 (해당 + 기타경기 + 기타지역)
+  rate: number         // 1순위 경쟁률 = total / suply (공공 API 경로와 동일 산식)
+  localRate: number    // 청약홈 표시값 (해당지역 행 경쟁률) — 참고용
 }
 
 // 2순위 한 행 (공급세대 없음 — 1순위 미달분에 대한 추가접수)
@@ -26,7 +32,8 @@ type Rank2ByType = {
   typeLabel: string
   hasData: boolean     // 2순위 접수가 있었는지 (false면 1순위 마감)
   local: number        // 2순위 해당지역
-  etc: number          // 2순위 기타지역
+  ggOther: number      // 2순위 기타경기
+  etc: number          // 2순위 기타지역 (해당지역 외 전부 = 기타경기 + 기타지역)
   total: number        // 2순위 합계
   rate: number         // 2순위 경쟁률 (해당지역 기준 청약홈 표시값)
 }
@@ -115,7 +122,7 @@ type ParsedRow = {
   type: string         // 주택형 ("048.6543")
   suply: number        // 공급세대수
   rank: string         // "1순위" / "2순위" / ""
-  region: string       // "해당지역" / "기타지역" / ""
+  region: string       // "해당지역" / "기타경기" / "기타지역" / ""
   reqCnt: number       // 접수건수
   rate: number         // 경쟁률 (사이트 표시값)
 }
@@ -191,22 +198,31 @@ function aggregateAllRanks(parsed: ParsedRow[]): {
         typeLabel: makeTypeLabel(key),
         suply: row.suply,
         local: 0,
+        ggOther: 0,
         etc: 0,
         total: 0,
         rate: 0,
+        localRate: 0,
       })
     }
     const e = r1Map.get(key)!
     if (row.suply > e.suply) e.suply = row.suply
+    // 지역 구분: 해당지역 / 기타경기(경기 단지) / 기타지역
+    // ※ 해당지역이 아닌 행은 전부 etc에 합산 (기타경기 누락 방지). 기타경기는 ggOther에 별도 보관.
     if (row.region === '해당지역') {
       e.local += row.reqCnt
-      if (row.rate > 0) e.rate = row.rate
-    } else if (row.region === '기타지역') {
+      if (row.rate > 0) e.localRate = row.rate
+    } else if (row.region) {
       e.etc += row.reqCnt
+      if (row.region === '기타경기') e.ggOther += row.reqCnt
     }
   }
   const rank1ByType = Array.from(r1Map.values())
-    .map((e) => ({ ...e, total: e.local + e.etc }))
+    .map((e) => {
+      const total = e.local + e.etc
+      const rate = e.suply > 0 ? Math.round((total / e.suply) * 100) / 100 : 0
+      return { ...e, total, rate }
+    })
     .sort((a, b) => a.type.localeCompare(b.type))
 
   // === 2순위 집계 ===
@@ -220,6 +236,7 @@ function aggregateAllRanks(parsed: ParsedRow[]): {
         typeLabel: makeTypeLabel(key),
         hasData: true,
         local: 0,
+        ggOther: 0,
         etc: 0,
         total: 0,
         rate: 0,
@@ -229,8 +246,9 @@ function aggregateAllRanks(parsed: ParsedRow[]): {
     if (row.region === '해당지역') {
       e.local += row.reqCnt
       if (row.rate > 0) e.rate = row.rate
-    } else if (row.region === '기타지역') {
+    } else if (row.region) {
       e.etc += row.reqCnt
+      if (row.region === '기타경기') e.ggOther += row.reqCnt
     }
   }
   // 1순위 주택형 순서를 따라가며 2순위 행 정렬 (없으면 hasData=false)
@@ -244,6 +262,7 @@ function aggregateAllRanks(parsed: ParsedRow[]): {
       typeLabel: r1.typeLabel,
       hasData: false,
       local: 0,
+      ggOther: 0,
       etc: 0,
       total: 0,
       rate: 0,
@@ -345,7 +364,8 @@ export async function GET(request: Request) {
         'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
         'Referer': 'https://www.applyhome.co.kr/ai/aia/selectAPTLttotPblancListView.do',
       },
-      next: { revalidate: 300 }, // 5분
+      // 발표 시간대(19:20~20:45 KST)는 캐시 없이 직접 조회, 그 외 5분 캐시
+      ...applyhomeFetchCache(),
     })
 
     if (!res.ok) {
