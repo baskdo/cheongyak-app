@@ -244,6 +244,25 @@ function ReportBody() {
   const [previewStage, setPreviewStage] = useState<PreviewStage>(['spsply', 'rank1'].includes(stageParam) ? stageParam : 'auto')
   const captureRef = useRef<HTMLDivElement>(null)
 
+  // 좁은 화면(폰)에서는 760px 본문을 화면 폭에 맞춰 축소해 전체가 보이게 한다.
+  // 이미지 저장 때는 축소를 잠시 풀고 원본 크기(760px)로 캡처한다.
+  const REPORT_W = 760
+  const [fitScale, setFitScale] = useState(1)
+  const [fitHeight, setFitHeight] = useState<number | null>(null)
+  useEffect(() => {
+    const calc = () => {
+      const avail = Math.max(320, window.innerWidth - 16)
+      const k = Math.min(1, avail / REPORT_W)
+      setFitScale(k)
+      setFitHeight(k < 1 && captureRef.current ? captureRef.current.offsetHeight * k : null)
+    }
+    calc()
+    window.addEventListener('resize', calc)
+    const ro = typeof ResizeObserver !== 'undefined' && captureRef.current ? new ResizeObserver(calc) : null
+    if (ro && captureRef.current) ro.observe(captureRef.current)
+    return () => { window.removeEventListener('resize', calc); ro?.disconnect() }
+  }, [data, previewStage])
+
   const queryStr = useMemo(() => {
     const clean = (v: string) => v.split(',').map((x) => x.trim()).filter(Boolean).join(',')
     const q = new URLSearchParams()
@@ -308,11 +327,18 @@ function ReportBody() {
     try {
       const html2canvas = (await import('html2canvas')).default
       const target = captureRef.current
+      // 축소 표시 중이면 캡처 동안 원본 크기로
+      const wrap = target.parentElement as HTMLElement | null
+      const prevTransform = wrap?.style.transform || ''
+      const prevHeight = wrap?.style.height || ''
+      if (wrap) { wrap.style.transform = 'none'; wrap.style.height = 'auto' }
+      await new Promise((r) => setTimeout(r, 50))
       const rect = target.getBoundingClientRect()
       const canvas = await html2canvas(target, {
         backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false,
         width: rect.width, height: rect.height, windowWidth: 800, scrollX: 0, scrollY: 0,
       })
+      if (wrap) { wrap.style.transform = prevTransform; wrap.style.height = prevHeight }
       const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'))
       if (!blob) throw new Error('이미지 변환 실패')
       const d = new Date()
@@ -382,9 +408,14 @@ function ReportBody() {
       )}
       {err && <p className="max-w-[760px] mx-auto mb-2 text-sm text-red-600">{err}</p>}
 
-      {/* 캡처 영역 — 폭 760px 고정: 폰에서는 옆으로 밀어 보고, 저장 이미지는 PC와 동일하게 나온다 */}
-      <div className="overflow-x-auto">
-      <div ref={captureRef} className="rpt-capture w-[760px] mx-auto bg-white rounded-lg shadow p-5">
+      {/* 캡처 영역 — 폭 760px 고정. 폰에서는 화면 폭에 맞춰 축소 표시, 저장 이미지는 항상 760px 원본 */}
+      <div className="max-w-[760px] mx-auto overflow-hidden">
+      <div
+        style={fitScale < 1
+          ? { transform: `scale(${fitScale})`, transformOrigin: 'top left', width: REPORT_W, height: fitHeight ?? undefined }
+          : undefined}
+      >
+      <div ref={captureRef} className="rpt-capture w-[760px] bg-white rounded-lg shadow p-5">
         {/* 머리글: 제목(좌) / 로고 + 날짜(우) — 로고는 날씬하게, 날짜는 로고 아래 작게 */}
         <div className="flex items-end justify-between border-b-2 border-gray-800 pb-2.5 mb-4">
           <h1 className="text-[30px] font-extrabold text-gray-900 leading-tight tracking-tight">{title || '청약결과 보고'}</h1>
@@ -414,7 +445,10 @@ function ReportBody() {
         )}
       </div>
       </div>
-      <p className="max-w-[760px] mx-auto mt-2 text-[10px] text-gray-400 sm:hidden">※ 폰에서는 보고서를 옆으로 밀어 볼 수 있고, 저장 이미지는 전체 폭으로 나옵니다</p>
+      </div>
+      {fitScale < 1 && (
+        <p className="max-w-[760px] mx-auto mt-2 text-[10px] text-gray-400">※ 화면에 맞춰 축소 표시 중 · 저장 이미지는 원본 크기(760px)로 나옵니다</p>
+      )}
     </div>
   )
 }
