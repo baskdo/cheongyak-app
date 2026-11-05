@@ -274,7 +274,7 @@ async function buildSite(origin: string, key: string, pblancNo: string): Promise
     ...Object.keys(supply), ...Object.keys(spsplyMap || {}), ...Object.keys(rankMap || {}),
   ])
   const rows: ReportRow[] = []
-  for (const ty of keys) {
+  for (const ty of Array.from(keys)) {
     const sup = supply[ty]
     const sp = spsplyMap?.[ty]
     const rk = rankMap?.[ty]
