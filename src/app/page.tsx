@@ -2935,18 +2935,25 @@ function ReportBuilderPanel({
 
   // === 텔레그램 알림 예약 (서버 저장) ===
   const [watch, setWatch] = useState<{ id: number; title: string; detail: string[]; compare: string[] } | null>(null)
-  const [adminKey, setAdminKey] = useState('')
   const [watchBusy, setWatchBusy] = useState(false)
   const [watchMsg, setWatchMsg] = useState('')
-  const [editKey, setEditKey] = useState(false) // 저장된 키가 있으면 입력칸 숨김
+  // 관리자 키: /?admin=키 로 한 번 열면 이 브라우저에 저장 → 이후 자동 사용. 키가 없으면 예약 섹션을 아예 표시하지 않음 (도배 방지)
+  const [adminKey, setAdminKey] = useState('')
   useEffect(() => {
-    try { setAdminKey(window.localStorage.getItem('cyhome_admin_key') || '') } catch { /* 무시 */ }
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get('admin')
+      if (fromUrl) {
+        window.localStorage.setItem('cyhome_admin_key', fromUrl)
+        // 주소창에서 키 제거 (북마크·공유 시 노출 방지)
+        const u = new URL(window.location.href); u.searchParams.delete('admin')
+        window.history.replaceState(null, '', u.pathname + (u.search || '') + u.hash)
+      }
+      setAdminKey(window.localStorage.getItem('cyhome_admin_key') || '')
+    } catch { /* 무시 */ }
     fetch('/api/notify-watch', { cache: 'no-store' }).then((r) => r.json()).then((j) => { if (j?.ok) setWatch(j.watch) }).catch(() => {})
   }, [])
-  const saveAdminKey = (k: string) => { setAdminKey(k); try { window.localStorage.setItem('cyhome_admin_key', k) } catch { /* 무시 */ } }
   const reserveWatch = async () => {
     if (selection.detail.length === 0) { setWatchMsg('세부조회 단지를 1개 이상 선택하세요'); return }
-    if (!adminKey) { setWatchMsg('관리 키를 입력하세요 (Vercel의 CRON_SECRET 값)'); return }
     setWatchBusy(true); setWatchMsg('')
     try {
       const res = await fetch('/api/notify-watch', {
@@ -2954,12 +2961,11 @@ function ReportBuilderPanel({
         body: JSON.stringify({ detail: selection.detail.map((d) => d.id), compare: selection.compare.map((d) => d.id), title: selection.detail.map((d) => d.name).join(' / ') }),
       })
       const j = await res.json()
-      if (j?.ok) { setWatch(j.watch); setWatchMsg('예약됨 — 발표 시각에 텔레그램으로 보고서가 갑니다') }
+      if (j?.ok) { setWatch(j.watch); setWatchMsg('예약됨 — 특공·1순위·2순위 발표 시각에 그룹방으로 보고서가 갑니다') }
       else setWatchMsg(j?.error || '예약 실패')
     } catch (e) { setWatchMsg(String(e)) } finally { setWatchBusy(false) }
   }
   const cancelWatch = async () => {
-    if (!adminKey) { setWatchMsg('관리 키를 입력하세요'); return }
     setWatchBusy(true); setWatchMsg('')
     try {
       const res = await fetch('/api/notify-watch', { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
@@ -3047,43 +3053,31 @@ function ReportBuilderPanel({
         </div>
         <p className="text-[10px] text-gray-400 mt-2">선택은 이 브라우저에 저장되어 다음에 그대로 유지됩니다.</p>
 
-        {/* 텔레그램 알림 예약 */}
+        {/* 텔레그램 알림예약 — 관리자 링크(/?admin=키)로 연 브라우저에서만 표시 */}
+        {adminKey && (
         <div className="mt-3 pt-3 border-t border-gray-100">
-          <p className="text-[11px] font-bold text-gray-700 mb-1">🔔 텔레그램 알림 예약</p>
+          <p className="text-[11px] font-bold text-gray-700 mb-1">🔔 텔레그램 알림예약</p>
           {watch ? (
             <div className="text-[11px] bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 mb-2">
               <p className="font-semibold text-emerald-800 truncate" title={watch.title}>예약 중: {watch.title || `${watch.detail.length}개 단지`}</p>
-              <p className="text-emerald-700">세부 {watch.detail.length} · 비교 {watch.compare.length} — 특공/1순위/2순위 발표 시각에 자동 발송</p>
+              <p className="text-emerald-700">세부 {watch.detail.length} · 비교 {watch.compare.length} — 발표 시각에 텔레그램 그룹방으로 자동 발송</p>
             </div>
           ) : (
-            <p className="text-[11px] text-gray-400 mb-2">현재 선택(세부/비교)을 서버에 저장하면 발표 시각(19:30 전후)에 보고서를 텔레그램으로 보냅니다.</p>
-          )}
-          {adminKey && !editKey ? (
-            <p className="text-[10px] text-gray-400 mb-2">
-              🔑 관리 키 저장됨 · <button type="button" onClick={() => setEditKey(true)} className="underline hover:text-gray-600">변경</button>
-            </p>
-          ) : (
-            <input
-              type="password"
-              value={adminKey}
-              onChange={(e) => saveAdminKey(e.target.value)}
-              onBlur={() => { if (adminKey) setEditKey(false) }}
-              placeholder="관리 키 (처음 한 번만 입력, 이후 저장됨)"
-              autoFocus={editKey}
-              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs mb-2 focus:outline-none focus:border-blue-400"
-            />
+            <p className="text-[11px] text-gray-400 mb-2">세부/비교 선택을 예약하면 특공·1순위·2순위 발표 시각(19:30 전후)에 텔레그램 그룹방으로 보고서가 갑니다.</p>
           )}
           <div className="flex gap-2">
             <button type="button" onClick={reserveWatch} disabled={watchBusy || selection.detail.length === 0}
               className="flex-1 text-xs font-bold py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400">
-              {watchBusy ? '처리 중…' : watch ? '현재 선택으로 다시 예약' : '알림 예약'}
+              {watchBusy ? '처리 중…' : watch ? '현재 선택으로 다시 예약' : '알림예약'}
             </button>
             {watch && (
               <button type="button" onClick={cancelWatch} disabled={watchBusy} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500">해제</button>
             )}
           </div>
           {watchMsg && <p className="text-[10px] mt-1.5 text-gray-600">{watchMsg}</p>}
+          <p className="text-[10px] text-gray-400 mt-1.5">세부조회는 최대 3개 단지까지 발송됩니다.</p>
         </div>
+        )}
       </div>
     </aside>
   )

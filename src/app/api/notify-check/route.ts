@@ -30,6 +30,7 @@ export const maxDuration = 10
 
 const STAGE_ORDER: Record<string, number> = { before: 0, spsply: 1, rank1: 2, rank2: 3, final: 3 }
 
+
 function originOf(request: Request): string {
   const h = request.headers
   const host = h.get('x-forwarded-host') || h.get('host')
@@ -127,7 +128,8 @@ export async function GET(request: Request) {
   }
 
   // 3) 진행된 단지 판정 — 세부조회 단지만 알림 대상 (비교단지는 본문에 같이 실림)
-  const sites: ReportSite[] = data.detail.length > 0 ? data.detail : data.compare
+  // 도배 상한: 한 번에 세부 3개 단지까지만 (예약 화면도 같은 제한)
+  const sites: ReportSite[] = (data.detail.length > 0 ? data.detail : data.compare).slice(0, 3)
   const advanced = sites.filter((s) => {
     if (s.stage === 'before') return false
     if (force) return true
