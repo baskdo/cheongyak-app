@@ -2938,6 +2938,7 @@ function ReportBuilderPanel({
   const [adminKey, setAdminKey] = useState('')
   const [watchBusy, setWatchBusy] = useState(false)
   const [watchMsg, setWatchMsg] = useState('')
+  const [editKey, setEditKey] = useState(false) // 저장된 키가 있으면 입력칸 숨김
   useEffect(() => {
     try { setAdminKey(window.localStorage.getItem('cyhome_admin_key') || '') } catch { /* 무시 */ }
     fetch('/api/notify-watch', { cache: 'no-store' }).then((r) => r.json()).then((j) => { if (j?.ok) setWatch(j.watch) }).catch(() => {})
@@ -3057,13 +3058,21 @@ function ReportBuilderPanel({
           ) : (
             <p className="text-[11px] text-gray-400 mb-2">현재 선택(세부/비교)을 서버에 저장하면 발표 시각(19:30 전후)에 보고서를 텔레그램으로 보냅니다.</p>
           )}
-          <input
-            type="password"
-            value={adminKey}
-            onChange={(e) => saveAdminKey(e.target.value)}
-            placeholder="관리 키 (CRON_SECRET)"
-            className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs mb-2 focus:outline-none focus:border-blue-400"
-          />
+          {adminKey && !editKey ? (
+            <p className="text-[10px] text-gray-400 mb-2">
+              🔑 관리 키 저장됨 · <button type="button" onClick={() => setEditKey(true)} className="underline hover:text-gray-600">변경</button>
+            </p>
+          ) : (
+            <input
+              type="password"
+              value={adminKey}
+              onChange={(e) => saveAdminKey(e.target.value)}
+              onBlur={() => { if (adminKey) setEditKey(false) }}
+              placeholder="관리 키 (처음 한 번만 입력, 이후 저장됨)"
+              autoFocus={editKey}
+              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs mb-2 focus:outline-none focus:border-blue-400"
+            />
+          )}
           <div className="flex gap-2">
             <button type="button" onClick={reserveWatch} disabled={watchBusy || selection.detail.length === 0}
               className="flex-1 text-xs font-bold py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400">

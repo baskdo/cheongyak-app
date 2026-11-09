@@ -28,7 +28,7 @@ type GeneralCategory = {
   name: '다자녀' | '신혼부부' | '생애최초' | '청년' | '노부모' | '신생아'
   suply: number          // 배정세대수
   local: number          // 해당지역 접수
-  ggOther: number        // 기타경기 접수 (다자녀만 별도; 그 외는 0)
+  ggOther: number        // 기타경기 접수 (경기 단지: 모든 분류에 존재)
   etc: number            // 기타지역 접수
   total: number          // local + ggOther + etc
 }
@@ -229,7 +229,7 @@ function gridToHouseTypes(grid: string[][]): { houseTypes: HouseTypeRow[]; subsc
     // 지역행을 라벨로 검색 (위치 고정 X — 단지마다 행 개수가 다름)
     const findRow = (label: string) => block.find((row) => row[2] === label)
     const haedang = findRow('해당지역')
-    const ggOther = findRow('기타경기')   // 경기도 단지의 다자녀에만 존재
+    const ggOther = findRow('기타경기')   // 경기도 단지에만 존재 (모든 분류)
     const etcAr   = findRow('기타지역')
 
     const getNum = (row: string[] | undefined, col: number) =>
@@ -258,8 +258,16 @@ function gridToHouseTypes(grid: string[][]): { houseTypes: HouseTypeRow[]; subsc
     const insttRecom = parseInstText(haedang ? haedang[9]  : '')
     const transrInst = parseInstText(haedang ? haedang[10] : '')
 
-    // 기타경기 (다자녀 idx 3만 의미 있음; 그 외 카테고리는 0)
-    const ctprvnMnych = getNum(ggOther, 3)
+    // 기타경기 — 경기 단지는 모든 분류(다자녀·신혼·생애최초·청년·노부모·신생아)에 기타경기 접수가 있다.
+    // (이전 버전은 다자녀만 읽고 나머지를 0으로 버려 합계가 과소집계됐음 — 2026-11 평택 고덕 우미린 사례)
+    const ggArea = {
+      다자녀:   getNum(ggOther, 3),
+      신혼부부: getNum(ggOther, 4),
+      생애최초: getNum(ggOther, 5),
+      청년:     getNum(ggOther, 6),
+      노부모:   getNum(ggOther, 7),
+      신생아:   getNum(ggOther, 8),
+    }
 
     const etcArea = {
       다자녀:   getNum(etcAr, 3),
@@ -271,20 +279,16 @@ function gridToHouseTypes(grid: string[][]): { houseTypes: HouseTypeRow[]; subsc
     }
 
     // 일반 6분류 (배정 > 0 인 것만 포함)
-    const generalDefs: Array<{ name: GeneralCategory['name']; hasGgRow: boolean }> = [
-      { name: '다자녀',   hasGgRow: true  },
-      { name: '신혼부부', hasGgRow: false },
-      { name: '생애최초', hasGgRow: false },
-      { name: '청년',     hasGgRow: false },
-      { name: '노부모',   hasGgRow: false },
-      { name: '신생아',   hasGgRow: false },
+    const generalDefs: Array<{ name: GeneralCategory['name'] }> = [
+      { name: '다자녀' }, { name: '신혼부부' }, { name: '생애최초' },
+      { name: '청년' }, { name: '노부모' }, { name: '신생아' },
     ]
     const general: GeneralCategory[] = []
     for (const g of generalDefs) {
       const sup = assigned[g.name]
       if (sup <= 0) continue
       const local = crsparea[g.name]
-      const gg = g.hasGgRow ? ctprvnMnych : 0
+      const gg = ggArea[g.name]
       const etc = etcArea[g.name]
       general.push({
         name: g.name,

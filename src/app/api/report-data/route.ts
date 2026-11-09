@@ -264,6 +264,7 @@ async function buildSite(origin: string, key: string, pblancNo: string): Promise
     base.error = '공고 정보를 찾지 못했습니다 (공고번호 확인)'
   }
 
+  const todayKST = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
   const spsplyMap = spsplyScrape || spsplyMapFromDb(dbItem)
   base.source.spsply = spsplyScrape ? 'applyhome' : spsplyMap ? 'db' : 'none'
   const rankMap = rankScrape || rankMapFromDb(dbItem)
@@ -290,22 +291,24 @@ async function buildSite(origin: string, key: string, pblancNo: string): Promise
       spsplyAssigned, spsplyApplied,
       rank1Assigned, rank1Applied: rk?.applied ?? 0,
       rank1Local: rk?.local ?? 0, rank1Gg: rk?.gg ?? 0, rank1Etc: rk?.etc ?? 0,
-      rank2Applied: rk?.rank2Applied ?? 0, rank2HasData: rk?.rank2HasData ?? false,
+      rank2Applied: rk?.rank2Applied ?? 0,
+      // 청약홈 팝업은 접수 전에도 2순위 행을 0건으로 보여주므로, 접수가 있거나 2순위 접수일이 지난 뒤에만 "데이터 있음"으로 본다
+      rank2HasData: !!rk?.rank2HasData && ((rk?.rank2Applied ?? 0) > 0 || (!!base.dates.rank2 && todayKST > base.dates.rank2)),
     })
   }
   rows.sort(byType)
   base.rows = rows
   base.totals = sumRows(rows)
 
-  // 단계 판정
+  // 단계 판정 — 접수 건수가 있거나 해당 접수일이 지난 경우에만 그 단계로 본다
+  //   (특공 발표일 저녁에는 1순위 팝업이 0건 표로 이미 떠 있어, 건수만 보면 1·2순위 결과로 오인됨)
+  const t = base.totals
+  const rank1Passed = !!base.dates.rank1 && todayKST > base.dates.rank1
   let stage: ReportStage = 'before'
-  if (base.totals.rank2HasData) stage = 'rank2'
-  else if (base.totals.rank1Applied > 0) stage = 'rank1'
-  else if (spsplyMap) stage = 'spsply'
-  if (stage === 'rank2' && base.dates.announce) {
-    const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
-    if (today >= base.dates.announce) stage = 'final'
-  }
+  if (t.rank2HasData) stage = 'rank2'
+  else if (t.rank1Applied > 0 || (rankMap && rank1Passed)) stage = 'rank1'
+  else if (spsplyMap && (t.spsplyApplied > 0 || (!!base.dates.spsply && todayKST >= base.dates.spsply))) stage = 'spsply'
+  if (stage === 'rank2' && base.dates.announce && todayKST >= base.dates.announce) stage = 'final'
   base.stage = stage
   return base
 }
