@@ -3,6 +3,7 @@ import { neon } from '@neondatabase/serverless'
 import { ReportData, ReportSite } from '@/lib/reportTypes'
 import { reportToText } from '@/lib/reportText'
 import { loadActiveWatch, deactivateWatch } from '@/lib/notifyWatch'
+import { kstMinutesOfDay } from '@/lib/announceWindow'
 
 // 청약결과 텔레그램 알림 — "청약홈에 결과가 뜨는 순간" 보내기
 //
@@ -101,18 +102,39 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: '감시 단지 없음 — 접수현황 화면 [보고서 구성]에서 알림 예약을 하거나 NOTIFY_WATCH 를 설정하세요' })
   }
 
-  // 1) 데이터 조회
+  // 1) 데이터 조회 — 지연 최소화 전략 (Hobby 10초 제한 안에서)
+  //    a. 세부 단지만 먼저 조회 (2~3초). 비교 단지는 발송이 확정된 뒤에만 추가 조회.
+  //    b. 발표 직후 구간(19:29~19:36 KST)에 아직 결과가 없으면 5초 뒤 한 번 더 확인 → 1분 폴링의 지연을 절반으로.
+  const origin = originOf(request)
   const q = new URLSearchParams()
   if (watch.detail.length) q.set('detail', watch.detail.join(','))
   if (watch.compare.length) q.set('compare', watch.compare.join(','))
-  let data: ReportData | null = null
-  try {
-    const res = await fetch(`${originOf(request)}/api/report-data?${q.toString()}`, { cache: 'no-store', signal: AbortSignal.timeout(8000) })
-    data = (await res.json()) as ReportData
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: `report-data 실패: ${String(e)}` })
+  const detailQ = new URLSearchParams()
+  detailQ.set(watch.detail.length ? 'detail' : 'compare', (watch.detail.length ? watch.detail : watch.compare).join(','))
+
+  const started = Date.now()
+  const fetchReport = async (params: URLSearchParams, timeoutMs: number): Promise<ReportData | null> => {
+    try {
+      const res = await fetch(`${origin}/api/report-data?${params.toString()}&t=${Date.now()}`, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
+      return (await res.json()) as ReportData
+    } catch { return null }
   }
-  if (!data?.ok) return NextResponse.json({ ok: false, error: data?.error || 'report-data 실패' })
+  const stageNum = (s: ReportSite) => STAGE_ORDER[s.stage] ?? 0
+
+  let data: ReportData | null = await fetchReport(detailQ, 4500)
+  if (!data?.ok) return NextResponse.json({ ok: false, error: data?.error || 'report-data 실패(1차)' })
+
+  // b. 발표 직후 구간: 아직 진행된 단계가 없으면 5초 뒤 재확인
+  const nowMin = kstMinutesOfDay()
+  const inHotWindow = nowMin >= 19 * 60 + 29 && nowMin <= 19 * 60 + 36
+  const preview = (data.detail.length > 0 ? data.detail : data.compare)
+  const nothingNew = preview.every((s) => s.stage === 'before')
+  let recheck = false
+  if (!dryRun && inHotWindow && nothingNew && Date.now() - started < 3000) {
+    await new Promise((r) => setTimeout(r, 5000 - (Date.now() - started)))
+    const again = await fetchReport(detailQ, 3500)
+    if (again?.ok) { data = again; recheck = true }
+  }
 
   // 2) 전송 기록 조회 (pblancNo → 마지막 전송 stage)
   const sql = dbUrl ? neon(dbUrl) : null
@@ -143,13 +165,21 @@ export async function GET(request: Request) {
     watchSource,
     sites: sites.map((s) => ({ pblancNo: s.pblancNo, name: s.houseName, stage: s.stage, prevSent: sent.get(s.pblancNo) || null })),
     advanced: advanced.map((s) => s.pblancNo),
+    recheck,
+    elapsedMs: Date.now() - started,
     sent: false as boolean | string,
   }
   if (advanced.length === 0 || dryRun) return NextResponse.json(result)
 
-  // 4) 텔레그램 전송 — 보고서 전체 텍스트 + 링크
-  const reportLink = `${originOf(request)}/report?${q.toString()}`
-  const text = `${reportToText(data.detail, data.compare)}\n\n📄 ${reportLink}`.slice(0, 3900)
+  // 4) 텔레그램 전송 — 보고서 전체 텍스트 + 링크 (비교 단지는 시간이 남을 때만 붙임)
+  let compareSites: ReportSite[] = data.compare
+  if (watch.compare.length > 0 && compareSites.length === 0 && Date.now() - started < 6000) {
+    const cq = new URLSearchParams(); cq.set('compare', watch.compare.join(','))
+    const extra = await fetchReport(cq, Math.max(1500, 9000 - (Date.now() - started)))
+    if (extra?.ok) compareSites = extra.compare
+  }
+  const reportLink = `${origin}/report?${q.toString()}`
+  const text = `${reportToText(data.detail, compareSites)}\n\n📄 ${reportLink}`.slice(0, 3900)
   if (!token || !chatId) {
     return NextResponse.json({ ...result, sent: 'TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID 미설정', preview: text })
   }
