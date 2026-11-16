@@ -1,4 +1,5 @@
 import { neon } from '@neondatabase/serverless'
+import { gzipSync, gunzipSync } from 'zlib'
 
 // 공고 목록(청약공고·접수현황 탭의 뼈대) — 서버 저장 구조
 //
@@ -502,7 +503,7 @@ export async function syncNotices(budgetMs = 5500): Promise<SyncResult> {
       const apartments: ApartmentRow[] = []
       const types: TypeRow[] = []
       for (const r of rows) {
-        const arr = JSON.parse(r.data) as unknown[]
+        const arr = JSON.parse(r.data.startsWith('[') ? r.data : gunzipSync(Buffer.from(r.data, 'base64')).toString()) as unknown[]
         if (r.endpoint === EP_DETAIL) apartments.push(...(arr as ApartmentRow[]))
         else if (r.endpoint === EP_MDL) types.push(...(arr as TypeRow[]))
       }
@@ -519,7 +520,7 @@ export async function syncNotices(budgetMs = 5500): Promise<SyncResult> {
     const targets = () => planPages(meta)
       .filter((x) => ageOf(x.endpoint, x.page) > 60_000)
       .sort((a, b) => ageOf(b.endpoint, b.page) - ageOf(a.endpoint, a.page))
-    while (deadline - Date.now() > 3000) {
+    while (deadline - Date.now() > 2600) {
       const batch = targets().slice(0, CONCURRENCY)
       if (batch.length === 0) break
       const got = await Promise.all(batch.map(async ({ endpoint, page }) => {
@@ -532,7 +533,8 @@ export async function syncNotices(budgetMs = 5500): Promise<SyncResult> {
         if (!pj) { fetched.push(label + ' 실패'); return }
         const tf = Date.now()
         const total = Number(pj.totalCount ?? 0)
-        const text = JSON.stringify(trimRows(endpoint, pj.data as unknown[]))
+        // gzip+base64 로 저장 (JSON 은 5~8배 압축 → DB 전송시간이 병목이라 효과 큼)
+        const text = gzipSync(Buffer.from(JSON.stringify(trimRows(endpoint, pj.data as unknown[])))).toString('base64')
         await sql`INSERT INTO notices_pages (endpoint, page, data, total, updated_at)
                   VALUES (${endpoint}, ${page}, ${text}, ${total}, now())
                   ON CONFLICT (endpoint, page) DO UPDATE SET data = EXCLUDED.data, total = EXCLUDED.total, updated_at = now()`

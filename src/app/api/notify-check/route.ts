@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { neon } from '@neondatabase/serverless'
 import { ReportData, ReportSite } from '@/lib/reportTypes'
+import { saveSnapshot } from '@/lib/reportSnapshot'
+import { defaultTitle } from '@/lib/reportImage'
 import { reportToText } from '@/lib/reportText'
 import { loadActiveWatch, deactivateWatch } from '@/lib/notifyWatch'
 import { kstMinutesOfDay } from '@/lib/announceWindow'
@@ -61,6 +63,23 @@ async function sendTelegram(token: string, chatId: string, text: string): Promis
     })
     return res.ok
   } catch {
+    return false
+  }
+}
+
+// 보고서 이미지 — 파일을 올리지 않고 주소만 넘기면 텔레그램 서버가 가져간다 (sendPhoto by URL)
+async function sendTelegramPhoto(token: string, chatId: string, photoUrl: string, caption: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption: caption.slice(0, 1000) }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) console.error('[notify-check] sendPhoto', res.status, (await res.text().catch(() => '')).slice(0, 200))
+    return res.ok
+  } catch (e) {
+    console.error('[notify-check] sendPhoto fail', String(e))
     return false
   }
 }
@@ -139,11 +158,17 @@ export async function GET(request: Request) {
   // 2) 전송 기록 조회 (pblancNo → 마지막 전송 stage)
   const sql = dbUrl ? neon(dbUrl) : null
   const sent = new Map<string, string>()
+  const pendingImages = new Map<string, string>()   // 지난 실행에서 문자만 가고 이미지는 못 보낸 스냅샷 id → 단지
   if (sql) {
     try {
       await sql`CREATE TABLE IF NOT EXISTS notify_sent (pblanc_no text PRIMARY KEY, stage text NOT NULL, sent_at timestamptz DEFAULT now())`
-      const rows = (await sql`SELECT pblanc_no, stage FROM notify_sent`) as Array<{ pblanc_no: string; stage: string }>
-      for (const r of rows) sent.set(r.pblanc_no, r.stage)
+      await sql`ALTER TABLE notify_sent ADD COLUMN IF NOT EXISTS snapshot_id text`
+      await sql`ALTER TABLE notify_sent ADD COLUMN IF NOT EXISTS image_sent boolean NOT NULL DEFAULT true`
+      const rows = (await sql`SELECT pblanc_no, stage, snapshot_id, image_sent FROM notify_sent`) as Array<{ pblanc_no: string; stage: string; snapshot_id: string | null; image_sent: boolean }>
+      for (const r of rows) {
+        sent.set(r.pblanc_no, r.stage)
+        if (r.snapshot_id && !r.image_sent) pendingImages.set(r.snapshot_id, r.pblanc_no)
+      }
     } catch (e) {
       console.error('[notify-check] DB read fail', e)
     }
@@ -169,7 +194,25 @@ export async function GET(request: Request) {
     elapsedMs: Date.now() - started,
     sent: false as boolean | string,
   }
-  if (advanced.length === 0 || dryRun) return NextResponse.json(result)
+  // 지난 실행에서 못 보낸 이미지가 있으면 이번에 보낸다 (문자는 이미 갔으므로 이미지만)
+  const flushPendingImages = async (): Promise<string[]> => {
+    const done: string[] = []
+    if (!token || !chatId || !sql) return done
+    for (const [snapId, pblancNo] of Array.from(pendingImages.entries())) {
+      if (Date.now() - started > 7000) break
+      const ok = await sendTelegramPhoto(token, chatId, `${origin}/api/report-image?id=${snapId}`, '📊 청약결과 보고서 (이미지)')
+      if (ok) {
+        try { await sql`UPDATE notify_sent SET image_sent = true WHERE pblanc_no = ${pblancNo}` } catch {}
+        done.push(pblancNo)
+        pendingImages.delete(snapId)
+      } else break
+    }
+    return done
+  }
+  if (advanced.length === 0 || dryRun) {
+    const flushed = pendingImages.size > 0 && !dryRun ? await flushPendingImages() : []
+    return NextResponse.json({ ...result, imageFlushed: flushed })
+  }
 
   // 4) 텔레그램 전송 — 보고서 전체 텍스트 + 링크 (비교 단지는 시간이 남을 때만 붙임)
   let compareSites: ReportSite[] = data.compare
@@ -185,12 +228,28 @@ export async function GET(request: Request) {
   }
   const ok = await sendTelegram(token, chatId, text)
 
+  // 4-2) 이미지 — 발송 시점 데이터를 스냅샷으로 저장하고, 시간이 남으면 바로 사진 전송.
+  //      시간이 모자라면 image_sent=false 로 기록 → 다음 실행(1분 뒤)이 이어서 보낸다.
+  let imageSent: boolean | string = false
+  let snapId: string | null = null
+  if (ok) {
+    snapId = await saveSnapshot({ detail: data.detail, compare: compareSites, title: defaultTitle(data.detail.length ? data.detail : compareSites) })
+    if (snapId && Date.now() - started < 6500) {
+      imageSent = await sendTelegramPhoto(token, chatId, `${origin}/api/report-image?id=${snapId}`, '📊 청약결과 보고서 (이미지)')
+    } else if (snapId) {
+      imageSent = '시간 부족 — 다음 실행에서 전송'
+    } else {
+      imageSent = '스냅샷 저장 실패'
+    }
+  }
+
   // 5) 기록 (+ 모든 세부 단지가 2순위까지 발송됐으면 예약 자동 종료)
   if (ok && sql) {
     try {
       for (const s of advanced) {
-        await sql`INSERT INTO notify_sent (pblanc_no, stage, sent_at) VALUES (${s.pblancNo}, ${s.stage}, now())
-                  ON CONFLICT (pblanc_no) DO UPDATE SET stage = EXCLUDED.stage, sent_at = now()`
+        await sql`INSERT INTO notify_sent (pblanc_no, stage, sent_at, snapshot_id, image_sent)
+                  VALUES (${s.pblancNo}, ${s.stage}, now(), ${snapId}, ${imageSent === true || !snapId})
+                  ON CONFLICT (pblanc_no) DO UPDATE SET stage = EXCLUDED.stage, sent_at = now(), snapshot_id = EXCLUDED.snapshot_id, image_sent = EXCLUDED.image_sent`
         sent.set(s.pblancNo, s.stage)
       }
       if (watchId !== null && sites.every((s) => (STAGE_ORDER[sent.get(s.pblancNo) || 'before'] ?? 0) >= 3)) {
@@ -200,5 +259,5 @@ export async function GET(request: Request) {
       console.error('[notify-check] DB write fail', e)
     }
   }
-  return NextResponse.json({ ...result, sent: ok ? true : '텔레그램 전송 실패 (토큰/채팅ID 확인)' })
+  return NextResponse.json({ ...result, sent: ok ? true : '텔레그램 전송 실패 (토큰/채팅ID 확인)', imageSent, snapshotId: snapId, elapsedMs: Date.now() - started })
 }
