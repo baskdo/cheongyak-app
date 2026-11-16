@@ -328,24 +328,28 @@ function pickLatestDate(dates: string[]): string {
 // ===== DB 캐시 (Neon) =====
 //   notices_raw   : 공공데이터 원본 페이지를 (endpoint, page) 단위로 저장 — 한 번에 다 못 받아도 조금씩 채운다
 //   notices_cache : 화면용으로 조립된 목록 (id=1 한 행). /api/apartments 는 이것만 읽는다
+let tablesReady = false
 async function sqlClient() {
   const url = process.env.DATABASE_URL
   if (!url) return null
   const sql = neon(url)
-  await sql`CREATE TABLE IF NOT EXISTS notices_cache (
-    id int PRIMARY KEY,
-    items jsonb NOT NULL,
-    count int NOT NULL DEFAULT 0,
-    updated_at timestamptz NOT NULL DEFAULT now()
-  )`
-  await sql`CREATE TABLE IF NOT EXISTS notices_raw (
-    endpoint text NOT NULL,
-    page int NOT NULL,
-    data jsonb NOT NULL,
-    total int NOT NULL DEFAULT 0,
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (endpoint, page)
-  )`
+  if (!tablesReady) {
+    await sql`CREATE TABLE IF NOT EXISTS notices_cache (
+      id int PRIMARY KEY,
+      items jsonb NOT NULL,
+      count int NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`
+    await sql`CREATE TABLE IF NOT EXISTS notices_raw (
+      endpoint text NOT NULL,
+      page int NOT NULL,
+      data jsonb NOT NULL,
+      total int NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (endpoint, page)
+    )`
+    tablesReady = true
+  }
   return sql
 }
 
@@ -385,12 +389,16 @@ const MAX_PAGES: Record<string, number> = { [EP_DETAIL]: 10, [EP_MDL]: 30 }
 
 type RawMeta = { endpoint: string; page: number; total: number; updated_at: string }
 
-/** 한 페이지를 키 순서대로 시도해서 받아온다 */
-async function fetchPageAnyKey(endpoint: string, page: number, timeoutMs: number): Promise<PageJson | null> {
+/** 한 페이지를 키 순서대로 시도해서 받아온다. deadline(절대시각)을 넘기지 않는다 */
+async function fetchPageAnyKey(endpoint: string, page: number, deadline: number, trace: string[]): Promise<PageJson | null> {
   for (const key of apiKeys()) {
+    const remain = deadline - Date.now()
+    if (remain < 1200) return null
     const url = `${BASE_URL}/${endpoint}?serviceKey=${encodeURIComponent(key)}&page=${page}&perPage=${PER_PAGE}&returnType=JSON`
-    const pj = await fetchPage(url, timeoutMs)
+    const t = Date.now()
+    const pj = await fetchPage(url, remain - 300)
     if (pj && Array.isArray(pj.data)) return pj
+    trace.push(`key${key.slice(0, 4)} 실패 ${Date.now() - t}ms`)
   }
   return null
 }
@@ -413,78 +421,94 @@ export type SyncResult = {
   fetched: string[]      // 이번 호출에서 받은 페이지들 ("Detail#1 812ms")
   pending: number        // 아직 못 받은(또는 가장 오래된) 페이지 수
   assembled: boolean     // 이번 호출에서 캐시를 다시 조립했는지
+  trace: string[]        // 단계별 소요시간 (진단용)
   error?: string
 }
 
 /**
  * 공공데이터 → notices_raw(페이지 단위) → notices_cache(조립) 동기화.
  * Vercel Hobby 10초 제한 때문에 한 번 호출에 budgetMs 안에서 받을 수 있는 만큼만 받고,
- * 못 받은 페이지는 다음 호출(크론 30분/🔄 새로고침)이 이어서 받는다.
+ * 못 받은 페이지는 다음 호출(크론 10분/🔄 새로고침)이 이어서 받는다.
  *   - 아직 한 번도 안 받은 페이지 먼저, 그다음 가장 오래된 페이지 순
- *   - 모든 페이지가 한 번씩 들어와 있으면 매 호출 끝에 캐시를 다시 조립해 저장
+ *   - 모든 페이지가 한 번씩 들어와 있으면 호출 끝에 캐시를 다시 조립해 저장 (시간이 남을 때만)
+ *   - 어떤 경우에도 budgetMs + 1초 안에는 응답한다 (내부 작업이 늦어도 중간 결과로 응답)
  */
 export async function syncNotices(budgetMs = 7000): Promise<SyncResult> {
   const t0 = Date.now()
+  const deadline = t0 + budgetMs
   const fetched: string[] = []
-  const fail = (error: string, extra: Partial<SyncResult> = {}): SyncResult =>
-    ({ ok: false, count: 0, ms: Date.now() - t0, fetched, pending: 0, assembled: false, error, ...extra })
-  if (apiKeys().length === 0) return fail('API 키 없음')
-  let sql: Awaited<ReturnType<typeof sqlClient>>
-  try { sql = await sqlClient() } catch (e) { return fail('DB 연결 실패: ' + String(e)) }
-  if (!sql) return fail('DATABASE_URL 없음')
+  const trace: string[] = []
+  const mark = (label: string) => trace.push(`${label} ${Date.now() - t0}ms`)
+  const result = (partial: Partial<SyncResult>): SyncResult =>
+    ({ ok: false, count: 0, ms: Date.now() - t0, fetched, pending: 0, assembled: false, trace, ...partial })
 
-  // 1) 현재 저장 상태
-  const meta = (await sql`SELECT endpoint, page, total, updated_at FROM notices_raw`) as RawMeta[]
-  let plan = planPages(meta)
-  const has = (ep: string, p: number) => meta.find((m) => m.endpoint === ep && m.page === p)
+  const work = async (): Promise<SyncResult> => {
+    if (apiKeys().length === 0) return result({ error: 'API 키 없음' })
+    let sql: Awaited<ReturnType<typeof sqlClient>>
+    try { sql = await sqlClient() } catch (e) { return result({ error: 'DB 연결 실패: ' + String(e) }) }
+    if (!sql) return result({ error: 'DATABASE_URL 없음' })
+    mark('db연결')
 
-  // 2) 예산 안에서 페이지 받기: 없는 페이지 → 오래된 페이지 순
-  const order = () => {
-    plan = planPages(meta)
-    return plan
-      .map((x) => ({ ...x, at: has(x.endpoint, x.page)?.updated_at ? new Date(has(x.endpoint, x.page)!.updated_at).getTime() : 0 }))
-      .sort((a, b) => a.at - b.at)
-  }
-  let queue = order()
-  let idx = 0
-  while (idx < queue.length) {
-    const remain = budgetMs - (Date.now() - t0)
-    if (remain < 1800) break
-    const { endpoint, page } = queue[idx++]
-    const tp = Date.now()
-    const pj = await fetchPageAnyKey(endpoint, page, Math.min(6000, remain - 800))
-    const label = (endpoint === EP_DETAIL ? 'Detail' : 'Mdl') + '#' + page
-    if (!pj) { fetched.push(label + ' 실패'); continue }
-    const total = Number(pj.totalCount ?? 0)
-    await sql`INSERT INTO notices_raw (endpoint, page, data, total, updated_at)
-              VALUES (${endpoint}, ${page}, ${JSON.stringify(pj.data)}::jsonb, ${total}, now())
-              ON CONFLICT (endpoint, page) DO UPDATE SET data = EXCLUDED.data, total = EXCLUDED.total, updated_at = now()`
-    fetched.push(`${label} ${Date.now() - tp}ms`)
-    const m = has(endpoint, page)
-    if (m) { m.total = total; m.updated_at = new Date().toISOString() }
-    else meta.push({ endpoint, page, total, updated_at: new Date().toISOString() })
-    // 1페이지를 처음 받으면 전체 페이지 수가 정해지므로 큐를 다시 계산
-    if (page === 1) { queue = order(); idx = 0; queue = queue.filter((q) => !(has(q.endpoint, q.page) && Date.now() - new Date(has(q.endpoint, q.page)!.updated_at).getTime() < 60_000)) }
+    // 1) 현재 저장 상태
+    const meta = (await sql`SELECT endpoint, page, total, updated_at FROM notices_raw`) as RawMeta[]
+    mark(`원본메타(${meta.length})`)
+    const has = (ep: string, p: number) => meta.find((m) => m.endpoint === ep && m.page === p)
+    const ageOf = (ep: string, p: number) => { const m = has(ep, p); return m ? Date.now() - new Date(m.updated_at).getTime() : Infinity }
+
+    // 2) 예산 안에서 페이지 받기: 없는 페이지 → 오래된 페이지 순 (방금 받은 건 제외)
+    const nextTarget = () => planPages(meta)
+      .filter((x) => ageOf(x.endpoint, x.page) > 60_000)
+      .sort((a, b) => ageOf(b.endpoint, b.page) - ageOf(a.endpoint, a.page))[0]
+    while (deadline - Date.now() > 2500) {
+      const tgt = nextTarget()
+      if (!tgt) break
+      const { endpoint, page } = tgt
+      const label = (endpoint === EP_DETAIL ? 'Detail' : 'Mdl') + '#' + page
+      const tp = Date.now()
+      const pj = await fetchPageAnyKey(endpoint, page, deadline - 1200, trace)
+      if (!pj) { fetched.push(label + ' 실패'); break }
+      const tf = Date.now()
+      const total = Number(pj.totalCount ?? 0)
+      await sql`INSERT INTO notices_raw (endpoint, page, data, total, updated_at)
+                VALUES (${endpoint}, ${page}, ${JSON.stringify(pj.data)}::jsonb, ${total}, now())
+                ON CONFLICT (endpoint, page) DO UPDATE SET data = EXCLUDED.data, total = EXCLUDED.total, updated_at = now()`
+      fetched.push(`${label} api${tf - tp}ms db${Date.now() - tf}ms`)
+      const m = has(endpoint, page)
+      if (m) { m.total = total; m.updated_at = new Date().toISOString() }
+      else meta.push({ endpoint, page, total, updated_at: new Date().toISOString() })
+    }
+    mark('수신완료')
+
+    // 3) 모든 페이지가 들어와 있고 시간이 남으면 조립 → notices_cache 저장
+    const plan = planPages(meta)
+    const missing = plan.filter((x) => !has(x.endpoint, x.page)).length
+    const stale = plan.filter((x) => ageOf(x.endpoint, x.page) > 2 * 3600_000).length
+    if (missing > 0) {
+      const cache = await loadNoticeCache()
+      return result({ ok: true, count: cache?.count ?? 0, pending: missing, error: `원본 ${missing}페이지 미수신 — 다시 호출하면 이어서 받습니다` })
+    }
+    if (deadline + 1500 - Date.now() < 2500) {
+      const cache = await loadNoticeCache()
+      return result({ ok: true, count: cache?.count ?? 0, pending: stale, error: '원본은 다 있으나 조립할 시간 부족 — 다음 호출에서 조립' })
+    }
+    const rows = (await sql`SELECT endpoint, page, data FROM notices_raw ORDER BY endpoint, page`) as Array<{ endpoint: string; page: number; data: unknown[] }>
+    mark('원본읽기')
+    const apartments: ApartmentRow[] = []
+    const types: TypeRow[] = []
+    for (const r of rows) {
+      if (r.endpoint === EP_DETAIL) apartments.push(...(r.data as ApartmentRow[]))
+      else if (r.endpoint === EP_MDL) types.push(...(r.data as TypeRow[]))
+    }
+    if (apartments.length === 0) return result({ error: '공고 상세 원본이 비어 있음' })
+    const items = buildNoticeItems(apartments, types, new Map<string, Rank1Status>())
+    mark('조립')
+    const saved = await saveNoticeCache(items)
+    mark('저장')
+    return result({ ok: saved, count: items.length, pending: stale, assembled: true, error: saved ? undefined : 'DB 저장 실패' })
   }
 
-  // 3) 모든 페이지가 들어와 있으면 조립 → notices_cache 저장
-  plan = planPages(meta)
-  const missing = plan.filter((x) => !has(x.endpoint, x.page))
-  if (missing.length > 0) {
-    const cache = await loadNoticeCache()
-    return { ok: true, count: cache?.count ?? 0, ms: Date.now() - t0, fetched, pending: missing.length, assembled: false,
-             error: `원본 ${missing.length}페이지 미수신 — 다시 호출하면 이어서 받습니다` }
-  }
-  const rows = (await sql`SELECT endpoint, page, data FROM notices_raw ORDER BY endpoint, page`) as Array<{ endpoint: string; page: number; data: unknown[] }>
-  const apartments: ApartmentRow[] = []
-  const types: TypeRow[] = []
-  for (const r of rows) {
-    if (r.endpoint === EP_DETAIL) apartments.push(...(r.data as ApartmentRow[]))
-    else if (r.endpoint === EP_MDL) types.push(...(r.data as TypeRow[]))
-  }
-  if (apartments.length === 0) return fail('공고 상세 원본이 비어 있음')
-  const items = buildNoticeItems(apartments, types, new Map<string, Rank1Status>())
-  const saved = await saveNoticeCache(items)
-  const stale = plan.filter((x) => Date.now() - new Date(has(x.endpoint, x.page)!.updated_at).getTime() > 2 * 3600_000).length
-  return { ok: saved, count: items.length, ms: Date.now() - t0, fetched, pending: stale, assembled: true, error: saved ? undefined : 'DB 저장 실패' }
+  // 어떤 경우에도 제한시간 안에 응답 (타임아웃 504 대신 진단 정보를 돌려준다)
+  const guard = new Promise<SyncResult>((resolve) =>
+    setTimeout(() => resolve(result({ ok: true, error: `시간 초과 — 중간까지 처리됨`, pending: -1 })), budgetMs + 1800))
+  return Promise.race([work(), guard])
 }

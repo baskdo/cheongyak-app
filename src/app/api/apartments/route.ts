@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   const age = cache ? Date.now() - new Date(cache.updatedAt).getTime() : Infinity
   // 🔄 새로고침(fresh=1)일 때만 그 자리에서 동기화 (사용자 의도). 그 외엔 절대 기다리게 하지 않음.
   if (fresh && age > STALE_FOR_FRESH_MS) {
-    const r = await syncNotices()
+    const r = await syncNotices(6000)
     if (r.ok) cache = await loadNoticeCache()
     else console.error('[apartments] sync failed:', r.error)
   }
@@ -44,11 +44,16 @@ export async function GET(request: Request) {
   }
 
   // 최후 폴백: 라이브 1페이지 (DB 없거나 비었을 때)
+  //   10초 제한을 넘기지 않도록 7초 안에 못 받으면 빈 목록으로 응답 (화면은 "불러오는 중"이 아니라 재시도 안내)
   try {
-    const [apartments, types] = await Promise.all([
+    const live = Promise.all([
       fetchAllPagesParallel<Record<string, string>>('getAPTLttotPblancDetail', 1),
       fetchAllPagesParallel<Record<string, string | number>>('getAPTLttotPblancMdl', 1),
     ])
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7000))
+    const got = await Promise.race([live, timeout])
+    if (!got) return respond([], limit, { source: 'timeout' })
+    const [apartments, types] = got
     const items = applyStatus(buildNoticeItems(apartments, types, new Map()))
     return respond(items, limit, { source: 'live' })
   } catch (error) {
