@@ -185,7 +185,7 @@ async function fetchDbItem(pblancNo: string): Promise<DbItem | null> {
   const dbUrl = process.env.DATABASE_URL
   if (!dbUrl) return null
   try {
-    const sql = neon(dbUrl)
+    const sql = neon(dbUrl, { fetchOptions: { cache: 'no-store' } })
     const rows = (await sql.query('SELECT item FROM competition_items WHERE pblanc_no = $1 LIMIT 1', [pblancNo])) as Array<{ item: DbItem }>
     return rows[0]?.item || null
   } catch {

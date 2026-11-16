@@ -120,7 +120,7 @@ export async function GET(request: Request) {
   // 진단: dry=1 이면 예약 테이블 전체를 같이 보여준다
   let watchRows: unknown = undefined
   if (dryRun && dbUrl) {
-    try { watchRows = await neon(dbUrl)`SELECT id, title, detail, compare, active, created_at FROM notify_watch ORDER BY id` } catch (e) { watchRows = String(e) }
+    try { watchRows = await neon(dbUrl, { fetchOptions: { cache: 'no-store' } })`SELECT id, title, detail, compare, active, created_at FROM notify_watch ORDER BY id` } catch (e) { watchRows = String(e) }
   }
   if (watch.detail.length === 0 && watch.compare.length === 0) {
     return NextResponse.json({ ok: false, error: '감시 단지 없음 — 접수현황 화면 [보고서 구성]에서 알림 예약을 하거나 NOTIFY_WATCH 를 설정하세요' })
@@ -161,7 +161,7 @@ export async function GET(request: Request) {
   }
 
   // 2) 전송 기록 조회 (pblancNo → 마지막 전송 stage)
-  const sql = dbUrl ? neon(dbUrl) : null
+  const sql = dbUrl ? neon(dbUrl, { fetchOptions: { cache: 'no-store' } }) : null
   const sent = new Map<string, string>()
   const pendingImages = new Map<string, string>()   // 지난 실행에서 문자만 가고 이미지는 못 보낸 스냅샷 id → 단지
   if (sql) {

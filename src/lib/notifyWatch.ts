@@ -23,7 +23,9 @@ export function toWatch(r: Row): NotifyWatch {
 export async function getSql() {
   const dbUrl = process.env.DATABASE_URL
   if (!dbUrl) throw new Error('DATABASE_URL not set')
-  const sql = neon(dbUrl)
+  // Next.js 가 route handler 안의 fetch(POST 포함)를 데이터 캐시에 넣을 수 있어 예약 조회가 과거 값으로 고정되는 문제 →
+  // Neon 드라이버의 fetch 에 cache:'no-store' 를 명시 (알림 체크가 11/10 예약을 계속 읽던 원인)
+  const sql = neon(dbUrl, { fetchOptions: { cache: 'no-store' } })
   await sql`CREATE TABLE IF NOT EXISTS notify_watch (
     id serial PRIMARY KEY,
     title text,
@@ -38,7 +40,8 @@ export async function getSql() {
 export async function loadActiveWatch(): Promise<NotifyWatch | null> {
   const sql = await getSql()
   const rows = (await sql`SELECT * FROM notify_watch WHERE active = true ORDER BY id DESC LIMIT 1`) as Row[]
-  return rows[0] ? toWatch(rows[0]) : null
+  // 캐시 등으로 비활성 행이 돌아오면 예약 없음으로 취급 (잘못된 단지로 감시하는 것보다 안전)
+  return rows[0] && rows[0].active ? toWatch(rows[0]) : null
 }
 
 export async function deactivateWatch(id: number) {

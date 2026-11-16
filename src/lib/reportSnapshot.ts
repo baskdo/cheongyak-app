@@ -10,7 +10,7 @@ export type Snapshot = { detail: ReportSite[]; compare: ReportSite[]; title: str
 async function client() {
   const url = process.env.DATABASE_URL
   if (!url) return null
-  const sql = neon(url)
+  const sql = neon(url, { fetchOptions: { cache: 'no-store' } })
   await sql`CREATE TABLE IF NOT EXISTS report_snapshots (
     id text PRIMARY KEY,
     data jsonb NOT NULL,

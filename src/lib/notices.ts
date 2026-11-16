@@ -333,7 +333,7 @@ let tablesReady = false
 async function sqlClient() {
   const url = process.env.DATABASE_URL
   if (!url) return null
-  const sql = neon(url)
+  const sql = neon(url, { fetchOptions: { cache: 'no-store' } })
   if (!tablesReady) {
     await sql`CREATE TABLE IF NOT EXISTS notices_cache (
       id int PRIMARY KEY,
