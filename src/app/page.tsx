@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { isAnnounceWindow } from '@/lib/announceWindow'
 
 // ===================== TYPES =====================
@@ -3517,11 +3517,25 @@ export default function Home() {
     }
   }, [activeTab, cmpetLoaded, fetchCompetition, yearMonthFrom, yearMonthTo, fetchSpecialSupply, spsplyItems.length])
 
+  // 접수현황 목록·보고서 단지 검색용 통합 목록:
+  //   최근 1,000건(noticeItems, 2~3초)이 먼저 오고 전체(items, 60페이지)는 뒤에 오므로
+  //   둘을 합쳐 "먼저 온 것부터 즉시" 보여준다. (이전엔 items만 써서 전체가 올 때까지 "0건"으로 보였음)
+  const allNotices = useMemo(() => {
+    if (items.length === 0) return noticeItems
+    if (noticeItems.length === 0) return items
+    const seen = new Set(items.map((i) => String(i.id || '').trim()))
+    const extra = noticeItems.filter((n) => !seen.has(String(n.id || '').trim()))
+    return extra.length ? [...items, ...extra] : items
+  }, [items, noticeItems])
+  const noticesLoading = (loading || noticeLoading || bgRefreshing) && allNotices.length === 0
+
   // 접수현황 탭 - 진입 시 캐시-퍼스트 (5분 이내 데이터면 fetch 스킵)
   // '이번 주' 선택일 때만 fresh, 그 외에는 캐시 활용
   useEffect(() => {
     if (activeTab !== 'thisweek') return
     const isThisWeekSelected = thisWeekPeriod === 'thisweek'
+    // 전체 목록이 아직 없으면 9초 프리페치를 기다리지 않고 바로 백그라운드로 요청 (단지 검색·과거 단지용)
+    if (items.length === 0) fetchNotice(false, true, true)
 
     // 기간에 따른 청약공고 데이터 로드 분기
     // (12m은 더 이상 없음, 연도 키만 풀 데이터 필요)
@@ -3847,7 +3861,7 @@ export default function Home() {
         {activeTab === 'thisweek' && (
           <div className="lg:flex lg:gap-4 lg:items-start">
           <div className="lg:w-72 lg:flex-shrink-0 lg:sticky lg:top-4 lg:order-last mb-4 lg:mb-0">
-            <ReportBuilderPanel selection={reportSel} onToggle={toggleReportSel} onClear={clearReportSel} allItems={items} />
+            <ReportBuilderPanel selection={reportSel} onToggle={toggleReportSel} onClear={clearReportSel} allItems={allNotices} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6 space-y-4">
@@ -3951,7 +3965,7 @@ export default function Home() {
             </div>
 
             {(() => {
-              const thisWeekItems = items
+              const thisWeekItems = allNotices
                 .filter(i => isInPeriod(i.rceptBgnde, i.rceptEndde, thisWeekPeriod))
                 .filter(i => thisWeekRegion === '전체' || i.region === thisWeekRegion)
                 .filter(i => !thisWeekKeyword || i.name.includes(thisWeekKeyword))
@@ -3959,7 +3973,9 @@ export default function Home() {
               return (
                 <>
                   <p className="text-sm text-blue-100 mb-4">
-                    총 <span className="font-bold text-white">{thisWeekItems.length}건</span>의 단지
+                    {noticesLoading
+                      ? <span className="font-bold text-white">공고 목록 불러오는 중…</span>
+                      : <>총 <span className="font-bold text-white">{thisWeekItems.length}건</span>의 단지</>}
                     <span className="text-xs text-blue-200/80 ml-2">
                       (기간: {periodLabel}
                       {thisWeekRegion !== '전체' && ` / 지역: ${thisWeekRegion}`}
@@ -3969,7 +3985,7 @@ export default function Home() {
                   </p>
                   <div className="flex flex-col gap-4">
                     {/* 첫 진입(데이터 없음) + 로딩 중일 때만 스켈레톤 */}
-                    {(loading || spsplyLoading) && items.length === 0 && noticeItems.length === 0 ? (
+                    {noticesLoading || (spsplyLoading && allNotices.length === 0) ? (
                       Array(3).fill(0).map((_, i) => <SkeletonCard key={i} />)
                     ) : thisWeekItems.length > 0 ? (
                       thisWeekItems.map(notice => {

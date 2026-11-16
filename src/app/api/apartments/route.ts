@@ -1,366 +1,62 @@
 import { NextResponse } from 'next/server'
+import { loadNoticeCache, syncNotices, applyStatus, apiKeys, fetchAllPagesParallel, buildNoticeItems } from '@/lib/notices'
 
-const BASE_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1'
-const COMPETITION_BASE_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoCmpetRtSvc/v1'
+// 공고 목록 API — DB 캐시 우선 (첫 화면이 공공데이터 API 상태에 흔들리지 않도록)
+//
+//   GET /api/apartments                → 전체 목록 (DB)
+//   GET /api/apartments?limit=recent   → 최신 1,000건 (DB에서 슬라이스)
+//   GET /api/apartments?fresh=1        → 🔄 새로고침: 캐시가 10분 넘었으면 그 자리에서 동기화 후 응답
+//
+//   캐시 없음(최초) → 동기화 시도 → 그래도 없으면 라이브 1페이지 폴백
+//   캐시가 3시간 넘게 오래됐으면(크론 중단 등) 요청 중 1건이 동기화를 수행
 
-type HouseTypeDetail = {
-  type: string        // 주택형 원본 (예: "059.9000A")
-  typeLabel: string   // 표시용 (예: "59A")
-  supplyArea: number  // 공급면적 (㎡)
-  pyeong: number      // 공급평형 (평, 소수점 2자리)
-  topAmount: number   // 최고 분양가 (만원)
-  pyeongPrice: number // 평당가 (만원/평)
-  suplyHshldco: number // 공급세대수
-}
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+export const maxDuration = 10
 
-type ApartmentRow = Record<string, string>
-type TypeRow = Record<string, string | number>
-type CmpetRow = Record<string, string | number>
+const STALE_FOR_FRESH_MS = 10 * 60 * 1000        // fresh=1 일 때 이보다 오래됐으면 동기화
+const STALE_HARD_MS = 3 * 60 * 60 * 1000         // 일반 요청도 이보다 오래됐으면 동기화
 
-// ===== 페이징 유틸: 끝까지 또는 maxPage까지 가져오기 =====
-// 사용 가능한 공공데이터 키 목록 (중복 제거). 하나가 트래픽 초과·만료로 죽어도 다음 키로 자동 재시도.
-//   2026-11-16: API_KEY 가 빈 응답을 내기 시작해 [접수현황]/[청약공고] 목록이 0건이 된 사고 → 키 폴백 도입
-function apiKeys(): string[] {
-  const list = [process.env.ODCLOUD_API_KEY, process.env.API_KEY2, process.env.API_KEY]
-    .map((k) => (k || '').trim())
-    .filter((k) => k && k !== '여기에_API키_입력')
-  return Array.from(new Set(list))
-}
-
-async function fetchAllPages<T>(
-  endpoint: string,
-  apiKey: string,            // 1순위 키 (실패 시 apiKeys()의 나머지로 재시도)
-  fresh = false,
-  maxPage = 30, // 안전장치 (1000건 × 30 = 최대 30,000건)
-  baseUrl: string = BASE_URL
-): Promise<T[]> {
-  const perPage = 1000
-  const keys = Array.from(new Set([apiKey, ...apiKeys()])).filter(Boolean)
-
-  for (let k = 0; k < keys.length; k++) {
-    const key = keys[k]
-    const rows: T[] = []
-    let page = 1
-    let done = false
-    let failed = false
-
-    while (!done && page <= maxPage) {
-      const url = `${baseUrl}/${endpoint}?serviceKey=${encodeURIComponent(key)}&page=${page}&perPage=${perPage}&returnType=JSON`
-      const res = await fetch(url, fresh
-        ? { cache: 'no-store' }
-        : { next: { revalidate: 600 } } // 10분 캐시
-      )
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        console.error(`[apartments] API error: ${endpoint} page=${page} status=${res.status} key#${k + 1} ${body.slice(0, 200)}`)
-        failed = page === 1   // 첫 페이지부터 실패 = 키 문제 → 다음 키로
-        break
-      }
-      const json = await res.json()
-      const data: T[] = json?.data || []
-      rows.push(...data)
-      if (data.length < perPage) done = true
-      else page += 1
-    }
-    // 첫 페이지가 실패했거나(키 오류) 아무것도 못 받았으면 다음 키로 재시도
-    if (!failed && (rows.length > 0 || k === keys.length - 1)) return rows
-    if (rows.length === 0 && k < keys.length - 1) console.warn(`[apartments] ${endpoint}: key#${k + 1} 결과 없음 → 다음 키로 재시도`)
-  }
-  return []
-}
-
-// ===== 1순위 결과 분석 =====
-// pblancNo별로 "1순위에서 모든 주택형이 마감되었는지" 판정
-// 결과:
-//   'sold_out'  - 전 주택형 1순위 마감 (2순위 안 열림 → 1순위 종료일까지만 접수중)
-//   'has_short' - 일부 주택형 미달 (2순위 열림 → 2순위 종료일까지 접수중)
-//   'no_data'   - competition API 데이터 없음 (발표 전 → 시간 기반 판정 폴백)
-type Rank1Status = 'sold_out' | 'has_short' | 'no_data'
-
-function buildRank1StatusMap(cmpetRows: CmpetRow[]): Map<string, Rank1Status> {
-  // pblancNo → 주택형별 (suply, reqCnt 합계) 집계
-  // 동일 주택형이라도 해당지역/기타로 행이 분리되니 reqCnt는 누적, suply는 max값 사용
-  type TypeAgg = { suply: number; reqCnt: number }
-  const grouped = new Map<string, Map<string, TypeAgg>>()  // pblancNo → (type → agg)
-
-  for (const row of cmpetRows) {
-    const pblancNo = String(row['PBLANC_NO'] || '').trim()
-    if (!pblancNo) continue
-
-    // 1순위만 분석 (RANK 정규화: '1', '01' 모두 1순위)
-    const rankRaw = String(row['SUBSCRPT_RANK_CODE'] ?? '').trim()
-    if (rankRaw !== '1' && rankRaw !== '01') continue
-
-    const type = String(row['HOUSE_TY'] || '').trim()
-    if (!type) continue
-
-    const reqCnt = Number(row['REQ_CNT'] ?? 0) || 0
-    const suply = Number(row['SUPLY_HSHLDCO'] ?? 0) || 0
-
-    if (!grouped.has(pblancNo)) grouped.set(pblancNo, new Map())
-    const typeMap = grouped.get(pblancNo)!
-
-    if (!typeMap.has(type)) {
-      typeMap.set(type, { suply, reqCnt: 0 })
-    }
-    const agg = typeMap.get(type)!
-    if (suply > agg.suply) agg.suply = suply
-    agg.reqCnt += reqCnt
-  }
-
-  // pblancNo별 판정
-  const result = new Map<string, Rank1Status>()
-  for (const [pblancNo, typeMap] of Array.from(grouped.entries())) {
-    if (typeMap.size === 0) {
-      result.set(pblancNo, 'no_data')
-      continue
-    }
-    // 모든 주택형이 마감(reqCnt >= suply)인지 검사
-    let allSoldOut = true
-    for (const agg of Array.from(typeMap.values())) {
-      if (agg.suply === 0) continue  // 공급 0인 주택형은 무시
-      if (agg.reqCnt < agg.suply) {
-        allSoldOut = false
-        break
-      }
-    }
-    result.set(pblancNo, allSoldOut ? 'sold_out' : 'has_short')
-  }
-  return result
+function respond(items: ReturnType<typeof applyStatus>, limit: string | null, meta: Record<string, unknown>) {
+  const out = limit === 'recent' ? items.slice(0, 1000) : items
+  return NextResponse.json({ items: out, total: out.length, ...meta }, {
+    headers: { 'Cache-Control': 'no-store' },
+  })
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const fresh = searchParams.get('fresh') === '1'
-  const limit = searchParams.get('limit') // 옵션: 'recent' = 최신 1페이지(1000건)만 (구버전 호환)
+  const limit = searchParams.get('limit')
 
-  // ODCLOUD_API_KEY 우선 (특공·경쟁률과 동일 키) → API_KEY2 → API_KEY 순으로 폴백
-  const apiKey = apiKeys()[0]
-  if (!apiKey) {
-    return NextResponse.json(getDummyData())
+  if (apiKeys().length === 0) return NextResponse.json(getDummyData())
+
+  let cache = await loadNoticeCache()
+  const age = cache ? Date.now() - new Date(cache.updatedAt).getTime() : Infinity
+  const needSync = !cache || (fresh && age > STALE_FOR_FRESH_MS) || age > STALE_HARD_MS
+
+  if (needSync) {
+    const r = await syncNotices()
+    if (r.ok) cache = await loadNoticeCache()
+    else console.error('[apartments] sync failed:', r.error)
   }
 
+  if (cache && cache.items.length > 0) {
+    return respond(applyStatus(cache.items), limit, { source: 'db', updatedAt: cache.updatedAt })
+  }
+
+  // 최후 폴백: 라이브 1페이지 (DB 없거나 비었을 때)
   try {
-    // limit=recent면 1페이지만, 아니면 끝까지 (최대 30페이지 = 30,000건)
-    // competition API는 ODCLOUD_API_KEY(=API_KEY2) 또는 API_KEY 둘 중 사용 가능
-    const cmpetKey = process.env.ODCLOUD_API_KEY || process.env.API_KEY2 || apiKey
-
-    // 🚀 [청약공고] 탭(limit=recent) 첫 화면 로딩 최적화:
-    //   - 공고상세: 1페이지만 (최신 1000건)
-    //   - 주택형/분양가: 1페이지만 (최신 1000건) — 최근 단지 분양가 표시용으로 충분
-    //   - 경쟁률: 호출 안 함 (recent에선 5만 건+ 전체를 끌어올 이유 없음 → 시간 기반 폴백)
-    //   풀로딩(limit 없음)일 땐 기존대로 전체 페이징.
-    const isRecent = limit === 'recent'
-
-    const [apartments, types, cmpetRows] = await Promise.all([
-      isRecent
-        ? fetchAllPages<ApartmentRow>('getAPTLttotPblancDetail', apiKey, fresh, 1)
-        : fetchAllPages<ApartmentRow>('getAPTLttotPblancDetail', apiKey, fresh),
-      isRecent
-        ? fetchAllPages<TypeRow>('getAPTLttotPblancMdl', apiKey, fresh, 1)
-        : fetchAllPages<TypeRow>('getAPTLttotPblancMdl', apiKey, fresh),
-      // 1순위 마감 판정용 (실패해도 무시 — 시간 기반 폴백)
-      // recent 요청에선 경쟁률 전체(5만 건+)를 건너뛰어 첫 화면 대기 시간을 크게 줄인다.
-      // 정확한 1순위 마감 여부는 [경쟁률 조회]/[접수현황 조회] 탭에서 별도 확인.
-      isRecent
-        ? Promise.resolve([] as CmpetRow[])
-        : fetchAllPages<CmpetRow>('getAPTLttotPblancCmpet', cmpetKey, fresh, 30, COMPETITION_BASE_URL).catch((e) => {
-            console.error('[apartments] competition fetch failed (will fallback to time-based):', e)
-            return [] as CmpetRow[]
-          }),
+    const [apartments, types] = await Promise.all([
+      fetchAllPagesParallel<Record<string, string>>('getAPTLttotPblancDetail', 1),
+      fetchAllPagesParallel<Record<string, string | number>>('getAPTLttotPblancMdl', 1),
     ])
-
-    // 1순위 결과 맵 (pblancNo → 'sold_out' | 'has_short' | 'no_data')
-    const rank1StatusMap = buildRank1StatusMap(cmpetRows)
-
-    const typeMap: Record<string, {
-      houseTypes: string
-      minPrice: string
-      maxPrice: string
-      details: HouseTypeDetail[]
-    }> = {}
-
-    types.forEach((t) => {
-      const no = String(t['PBLANC_NO'] || '')
-      if (!no) return
-      if (!typeMap[no]) typeMap[no] = { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
-
-      const ty = String(t['HOUSE_TY'] || '').trim()
-      const supplyArea = parseFloat(String(t['SUPLY_AR'] || '0'))
-      const topAmount = parseInt(String(t['LTTOT_TOP_AMOUNT'] || '0'))
-      // 🔧 청약홈 사이트의 "공급세대수(계)" = 일반공급 + 특별공급 합계
-      //   - SUPLY_HSHLDCO   = 일반공급 세대수 (예: 49)
-      //   - SPSPLY_HSHLDCO  = 특별공급 세대수 (예: 56)
-      //   → suplyHshldco = 두 값의 합 (예: 105) — 청약홈 사이트 표시값과 100% 일치
-      const gnrlHshldco = parseInt(String(t['SUPLY_HSHLDCO'] || '0')) || 0
-      const spsplyHshldco = parseInt(String(t['SPSPLY_HSHLDCO'] || '0')) || 0
-      const suplyHshldco = gnrlHshldco + spsplyHshldco
-
-      const typeLabel = ty.replace(/^0*(\d+)\.?\d*([A-Za-z]*)$/, (_, _num, suffix) => {
-        return Math.floor(parseFloat(ty)) + String(suffix).toUpperCase()
-      })
-
-      const pyeong = Math.round(supplyArea * 0.3025 * 100) / 100
-      const pyeongPrice = pyeong > 0 ? Math.round(topAmount / pyeong) : 0
-
-      if (ty && !typeMap[no].houseTypes.includes(ty)) {
-        typeMap[no].houseTypes = typeMap[no].houseTypes ? typeMap[no].houseTypes + ', ' + ty : ty
-      }
-
-      if (topAmount > 0) {
-        const curMin = typeMap[no].minPrice ? parseInt(typeMap[no].minPrice) : Infinity
-        const curMax = typeMap[no].maxPrice ? parseInt(typeMap[no].maxPrice) : 0
-        if (topAmount < curMin) typeMap[no].minPrice = String(topAmount)
-        if (topAmount > curMax) typeMap[no].maxPrice = String(topAmount)
-      }
-
-      if (supplyArea > 0) {
-        typeMap[no].details.push({
-          type: ty,
-          typeLabel,
-          supplyArea,
-          pyeong,
-          topAmount,
-          pyeongPrice,
-          suplyHshldco,
-        })
-      }
-    })
-
-    Object.values(typeMap).forEach((v) => {
-      v.details.sort((a, b) => a.supplyArea - b.supplyArea)
-    })
-
-    const transformed = apartments.map((item: ApartmentRow) => {
-      const no = item['PBLANC_NO'] || String(Math.random())
-      const typeInfo = typeMap[no] || { houseTypes: '', minPrice: '', maxPrice: '', details: [] }
-
-      // 청약홈 API 공식 필드 (기술문서 260129 기준)
-      // 특별공급: SPSPLY_RCEPT_BGNDE / SPSPLY_RCEPT_ENDDE
-      // 1순위: 해당지역(CRSPAREA) 우선, 없으면 경기(ETC_GG) → 기타지역(ETC_AREA) 순
-      const spsplyBgnde = item['SPSPLY_RCEPT_BGNDE'] || ''
-      const spsplyEndde = item['SPSPLY_RCEPT_ENDDE'] || ''
-      const rank1Bgnde =
-        item['GNRL_RNK1_CRSPAREA_RCPTDE'] ||
-        item['GNRL_RNK1_ETC_GG_RCPTDE'] ||
-        item['GNRL_RNK1_ETC_AREA_RCPTDE'] ||
-        ''
-      const rank1Endde =
-        item['GNRL_RNK1_CRSPAREA_ENDDE'] ||
-        item['GNRL_RNK1_ETC_GG_ENDDE'] ||
-        item['GNRL_RNK1_ETC_AREA_ENDDE'] ||
-        ''
-
-      // 2순위 (1순위 미달 시 추가 접수). 모든 지역 중 가장 늦은 종료일을 실제 접수마감으로 간주
-      const rank2Bgnde =
-        item['GNRL_RNK2_CRSPAREA_RCPTDE'] ||
-        item['GNRL_RNK2_ETC_GG_RCPTDE'] ||
-        item['GNRL_RNK2_ETC_AREA_RCPTDE'] ||
-        ''
-      const rank2Endde =
-        item['GNRL_RNK2_ETC_AREA_ENDDE'] ||
-        item['GNRL_RNK2_ETC_GG_ENDDE'] ||
-        item['GNRL_RNK2_CRSPAREA_ENDDE'] ||
-        ''
-
-      // ===== status 판정 (B안: 1순위 결과 반영) =====
-      // 1순위 결과 맵에서 단지별 마감 여부 조회
-      const rank1Status = rank1StatusMap.get(no) || 'no_data'
-
-      // 실제 접수 종료일 결정:
-      //   - 1순위에서 모두 마감(sold_out): RCEPT_ENDDE(=1순위 종료일)까지만 접수중
-      //   - 1순위 미달(has_short): 2순위 종료일까지 접수중
-      //   - 데이터 없음(no_data, 발표 전): 2순위 종료일까지 접수중으로 가정 (보수적)
-      //     ※ 발표 후에도 데이터가 안 들어오면 잘못 판정될 수 있으나, 그땐 사용자가 카드 눌러서 확인
-      let realEndDate: string
-      if (rank1Status === 'sold_out') {
-        // 1순위 마감 → 1순위 종료일 기준
-        realEndDate = pickLatestDate([rank1Endde, item['RCEPT_ENDDE'] || ''])
-      } else {
-        // has_short 또는 no_data → 2순위 종료일까지
-        realEndDate = pickLatestDate([
-          rank2Endde,
-          rank1Endde,
-          item['RCEPT_ENDDE'] || '',
-        ])
-      }
-
-      return {
-        id: no,
-        name: item['HOUSE_NM'] || '단지명 없음',
-        address: item['HSSPLY_ADRES'] || '',
-        region: extractRegion(item['SUBSCRPT_AREA_CODE_NM'] || item['HSSPLY_ADRES'] || ''),
-        type: item['HOUSE_SECD_NM'] || 'APT',
-        totalUnits: item['TOT_SUPLY_HSHLDCO'] || '0',
-        rceptBgnde: item['RCEPT_BGNDE'] || '',
-        rceptEndde: item['RCEPT_ENDDE'] || '',
-        // 특별공급 / 1순위 접수일 (정확한 공식 필드)
-        spsplyRceptBgnde: spsplyBgnde,
-        spsplyRceptEndde: spsplyEndde,
-        rank1RceptBgnde: rank1Bgnde,
-        rank1RceptEndde: rank1Endde,
-        rank2RceptBgnde: rank2Bgnde,
-        rank2RceptEndde: rank2Endde,
-        rank1Status,  // 'sold_out' | 'has_short' | 'no_data' (1순위 결과 분류)
-        przwnerPresnatnDe: item['PRZWNER_PRESNATN_DE'] || '',
-        pblancDe: item['RCRIT_PBLANC_DE'] || '',
-        status: getStatus(item['RCEPT_BGNDE'], realEndDate || item['RCEPT_ENDDE']),
-        hompageUrl: item['HMPG_ADRES'] || 'https://www.applyhome.co.kr',
-        constructor: item['CNSTRCT_ENTRPS_NM'] || '',
-        moveInDate: item['MVN_PREARNGE_YM'] || '',
-        pdfUrl: item['PBLANC_URL'] || '',
-        minPrice: typeInfo.minPrice,
-        maxPrice: typeInfo.maxPrice,
-        houseTypes: typeInfo.houseTypes,
-        typeDetails: typeInfo.details,
-      }
-    })
-
-    // 공고일 내림차순 정렬 (최신 먼저)
-    transformed.sort((a, b) => (b.pblancDe || '').localeCompare(a.pblancDe || ''))
-
-    return NextResponse.json({ items: transformed, total: transformed.length })
+    const items = applyStatus(buildNoticeItems(apartments, types, new Map()))
+    return respond(items, limit, { source: 'live' })
   } catch (error) {
     console.error('Fetch error:', error)
     return NextResponse.json(getDummyData())
   }
-}
-
-function extractRegion(text: string): string {
-  const regions: Record<string, string> = {
-    '서울': '서울', '경기': '경기', '인천': '인천', '부산': '부산',
-    '대구': '대구', '광주': '광주', '대전': '대전', '울산': '울산',
-    '세종': '세종', '강원': '강원', '충북': '충북', '충남': '충남',
-    '전북': '전북', '전남': '전남', '경북': '경북', '경남': '경남', '제주': '제주',
-  }
-  for (const [key, val] of Object.entries(regions)) {
-    if (text.includes(key)) return val
-  }
-  return '기타'
-}
-
-function getStatus(start: string, end: string): string {
-  if (!start || !end) return '접수예정'
-  const now = new Date()
-  const startDate = new Date(start)
-  const endDate = new Date(end)
-  // 종료일은 그날 23:59:59까지 접수중으로 간주 (날짜만 들어와도 당일은 접수중)
-  endDate.setHours(23, 59, 59, 999)
-  if (now < startDate) return '접수예정'
-  if (now > endDate) return '접수마감'
-  return '접수중'
-}
-
-// 여러 날짜 중 가장 늦은 날짜를 반환 (빈 값/잘못된 값은 무시)
-function pickLatestDate(dates: string[]): string {
-  let latest = ''
-  for (const d of dates) {
-    if (!d) continue
-    const trimmed = d.trim()
-    if (!trimmed) continue
-    if (!latest || trimmed > latest) latest = trimmed
-  }
-  return latest
 }
 
 function getDummyData() {
