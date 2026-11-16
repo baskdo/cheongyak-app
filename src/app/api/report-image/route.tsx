@@ -10,7 +10,7 @@ import type { ReportData, ReportSite } from '@/lib/reportTypes'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-export const maxDuration = 10
+export const maxDuration = 60   // Hobby 플랜 최대 60초 (기본 10초)
 
 function originOf(request: Request): string {
   const h = request.headers

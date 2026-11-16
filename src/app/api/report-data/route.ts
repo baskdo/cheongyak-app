@@ -20,7 +20,7 @@ import {
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-export const maxDuration = 10
+export const maxDuration = 60   // Hobby 플랜 최대 60초 (기본 10초)
 
 const DETAIL_BASE = 'https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1'
 const MAX_SITES = 8

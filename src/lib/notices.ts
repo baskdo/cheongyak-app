@@ -463,7 +463,7 @@ export type SyncResult = {
  * Vercel Hobby 10초 제한 때문에 한 번 호출에 budgetMs 안에서 할 수 있는 만큼만 하고, 나머지는 다음 호출이 이어받는다.
  *   모드 A(수집): 없는/오래된 페이지를 3개씩 동시에 받아 저장 (페이지당 API 약 3초)
  *   모드 B(조립): 모든 페이지가 있고 캐시가 원본보다 오래됐으면, 받기는 건너뛰고 조립·저장만
- *   어떤 경우에도 budgetMs + 1.2초 안에는 응답한다 (내부 작업이 늦어도 중간 결과로 응답)
+ *   어떤 경우에도 budgetMs + 15초 안에는 응답한다 (내부 작업이 늦어도 중간 결과로 응답)
  */
 export async function syncNotices(budgetMs = 5500): Promise<SyncResult> {
   const t0 = Date.now()
@@ -496,9 +496,9 @@ export async function syncNotices(budgetMs = 5500): Promise<SyncResult> {
     let plan = planPages(meta)
     let missing = plan.filter((x) => !has(x.endpoint, x.page)).length
 
-    // 2) 모드 B: 원본은 다 있고 캐시가 그보다 오래됐으면 → 조립만
-    if (missing === 0 && newestRaw > cacheAt) {
-      const rows = (await sql`SELECT endpoint, page, data FROM notices_pages ORDER BY endpoint, page`) as Array<{ endpoint: string; page: number; data: string }>
+    // 조립: notices_pages 전체 → buildNoticeItems → notices_cache
+    const assemble = async (): Promise<SyncResult> => {
+      const rows = (await sql!`SELECT endpoint, page, data FROM notices_pages ORDER BY endpoint, page`) as Array<{ endpoint: string; page: number; data: string }>
       mark('원본읽기')
       const apartments: ApartmentRow[] = []
       const types: TypeRow[] = []
@@ -512,9 +512,12 @@ export async function syncNotices(budgetMs = 5500): Promise<SyncResult> {
       mark('조립')
       const saved = await saveNoticeCache(items)
       mark('저장')
-      const stale = plan.filter((x) => ageOf(x.endpoint, x.page) > 2 * 3600_000).length
+      const stale = planPages(meta).filter((x) => ageOf(x.endpoint, x.page) > 2 * 3600_000).length
       return result({ ok: saved, count: items.length, pending: stale, assembled: true, error: saved ? undefined : 'DB 저장 실패' })
     }
+
+    // 2) 모드 B: 원본은 다 있고 캐시가 그보다 오래됐으면 → 조립만
+    if (missing === 0 && newestRaw > cacheAt) return assemble()
 
     // 3) 모드 A: 없는 페이지 → 오래된 페이지 순으로 3개씩 동시에 받기 (방금 받은 건 제외)
     const targets = () => planPages(meta)
@@ -549,12 +552,13 @@ export async function syncNotices(budgetMs = 5500): Promise<SyncResult> {
     mark('수신완료')
     plan = planPages(meta)
     missing = plan.filter((x) => !has(x.endpoint, x.page)).length
+    if (missing === 0 && deadline + 15000 - Date.now() > 8000) return assemble()   // 시간이 남으면 바로 조립
     return result({ ok: true, count: cacheMeta?.count ?? 0, pending: missing,
       error: missing > 0 ? `원본 ${missing}페이지 미수신 — 다음 호출이 이어서 받습니다` : '원본 수신 완료 — 다음 호출에서 조립합니다' })
   }
 
-  // 어떤 경우에도 제한시간 안에 응답 (타임아웃 504 대신 진단 정보를 돌려준다)
+  // 어떤 경우에도 예산+15초 안에 응답 (타임아웃 504 대신 진단 정보를 돌려준다)
   const guard = new Promise<SyncResult>((resolve) =>
-    setTimeout(() => { console.log('[sync] guard fired', trace.join(' | '), fetched.join(' | ')); resolve(result({ ok: true, error: `시간 초과 — 중간까지 처리됨`, pending: -1 })) }, budgetMs + 1200))
+    setTimeout(() => { console.log('[sync] guard fired', trace.join(' | '), fetched.join(' | ')); resolve(result({ ok: true, error: `시간 초과 — 중간까지 처리됨`, pending: -1 })) }, budgetMs + 15000))
   return Promise.race([work(), guard])
 }

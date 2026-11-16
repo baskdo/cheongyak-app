@@ -29,7 +29,7 @@ import { kstMinutesOfDay } from '@/lib/announceWindow'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-export const maxDuration = 10
+export const maxDuration = 60   // Hobby 플랜 최대 60초 (기본 10초)
 
 const STAGE_ORDER: Record<string, number> = { before: 0, spsply: 1, rank1: 2, rank2: 3, final: 3 }
 
@@ -74,7 +74,7 @@ async function sendTelegramPhoto(token: string, chatId: string, photoUrl: string
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption: caption.slice(0, 1000) }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     })
     if (!res.ok) console.error('[notify-check] sendPhoto', res.status, (await res.text().catch(() => '')).slice(0, 200))
     return res.ok
@@ -199,7 +199,7 @@ export async function GET(request: Request) {
     const done: string[] = []
     if (!token || !chatId || !sql) return done
     for (const [snapId, pblancNo] of Array.from(pendingImages.entries())) {
-      if (Date.now() - started > 7000) break
+      if (Date.now() - started > 45000) break
       const ok = await sendTelegramPhoto(token, chatId, `${origin}/api/report-image?id=${snapId}`, '📊 청약결과 보고서 (이미지)')
       if (ok) {
         try { await sql`UPDATE notify_sent SET image_sent = true WHERE pblanc_no = ${pblancNo}` } catch {}
@@ -216,9 +216,9 @@ export async function GET(request: Request) {
 
   // 4) 텔레그램 전송 — 보고서 전체 텍스트 + 링크 (비교 단지는 시간이 남을 때만 붙임)
   let compareSites: ReportSite[] = data.compare
-  if (watch.compare.length > 0 && compareSites.length === 0 && Date.now() - started < 6000) {
+  if (watch.compare.length > 0 && compareSites.length === 0 && Date.now() - started < 30000) {
     const cq = new URLSearchParams(); cq.set('compare', watch.compare.join(','))
-    const extra = await fetchReport(cq, Math.max(1500, 9000 - (Date.now() - started)))
+    const extra = await fetchReport(cq, Math.max(1500, 45000 - (Date.now() - started)))
     if (extra?.ok) compareSites = extra.compare
   }
   const reportLink = `${origin}/report?${q.toString()}`
@@ -234,7 +234,7 @@ export async function GET(request: Request) {
   let snapId: string | null = null
   if (ok) {
     snapId = await saveSnapshot({ detail: data.detail, compare: compareSites, title: defaultTitle(data.detail.length ? data.detail : compareSites) })
-    if (snapId && Date.now() - started < 6500) {
+    if (snapId && Date.now() - started < 45000) {
       imageSent = await sendTelegramPhoto(token, chatId, `${origin}/api/report-image?id=${snapId}`, '📊 청약결과 보고서 (이미지)')
     } else if (snapId) {
       imageSent = '시간 부족 — 다음 실행에서 전송'
