@@ -18,38 +18,55 @@ type TypeRow = Record<string, string | number>
 type CmpetRow = Record<string, string | number>
 
 // ===== 페이징 유틸: 끝까지 또는 maxPage까지 가져오기 =====
+// 사용 가능한 공공데이터 키 목록 (중복 제거). 하나가 트래픽 초과·만료로 죽어도 다음 키로 자동 재시도.
+//   2026-11-16: API_KEY 가 빈 응답을 내기 시작해 [접수현황]/[청약공고] 목록이 0건이 된 사고 → 키 폴백 도입
+function apiKeys(): string[] {
+  const list = [process.env.ODCLOUD_API_KEY, process.env.API_KEY2, process.env.API_KEY]
+    .map((k) => (k || '').trim())
+    .filter((k) => k && k !== '여기에_API키_입력')
+  return Array.from(new Set(list))
+}
+
 async function fetchAllPages<T>(
   endpoint: string,
-  apiKey: string,
+  apiKey: string,            // 1순위 키 (실패 시 apiKeys()의 나머지로 재시도)
   fresh = false,
   maxPage = 30, // 안전장치 (1000건 × 30 = 최대 30,000건)
   baseUrl: string = BASE_URL
 ): Promise<T[]> {
   const perPage = 1000
-  const rows: T[] = []
-  let page = 1
-  let done = false
+  const keys = Array.from(new Set([apiKey, ...apiKeys()])).filter(Boolean)
 
-  while (!done && page <= maxPage) {
-    const url = `${baseUrl}/${endpoint}?serviceKey=${encodeURIComponent(apiKey)}&page=${page}&perPage=${perPage}&returnType=JSON`
-    const res = await fetch(url, fresh
-      ? { cache: 'no-store' }
-      : { next: { revalidate: 600 } } // 10분 캐시
-    )
-    if (!res.ok) {
-      console.error(`API error: ${endpoint} page=${page} status=${res.status}`)
-      break
+  for (let k = 0; k < keys.length; k++) {
+    const key = keys[k]
+    const rows: T[] = []
+    let page = 1
+    let done = false
+    let failed = false
+
+    while (!done && page <= maxPage) {
+      const url = `${baseUrl}/${endpoint}?serviceKey=${encodeURIComponent(key)}&page=${page}&perPage=${perPage}&returnType=JSON`
+      const res = await fetch(url, fresh
+        ? { cache: 'no-store' }
+        : { next: { revalidate: 600 } } // 10분 캐시
+      )
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        console.error(`[apartments] API error: ${endpoint} page=${page} status=${res.status} key#${k + 1} ${body.slice(0, 200)}`)
+        failed = page === 1   // 첫 페이지부터 실패 = 키 문제 → 다음 키로
+        break
+      }
+      const json = await res.json()
+      const data: T[] = json?.data || []
+      rows.push(...data)
+      if (data.length < perPage) done = true
+      else page += 1
     }
-    const json = await res.json()
-    const data: T[] = json?.data || []
-    rows.push(...data)
-    if (data.length < perPage) {
-      done = true
-    } else {
-      page += 1
-    }
+    // 첫 페이지가 실패했거나(키 오류) 아무것도 못 받았으면 다음 키로 재시도
+    if (!failed && (rows.length > 0 || k === keys.length - 1)) return rows
+    if (rows.length === 0 && k < keys.length - 1) console.warn(`[apartments] ${endpoint}: key#${k + 1} 결과 없음 → 다음 키로 재시도`)
   }
-  return rows
+  return []
 }
 
 // ===== 1순위 결과 분석 =====
@@ -117,8 +134,9 @@ export async function GET(request: Request) {
   const fresh = searchParams.get('fresh') === '1'
   const limit = searchParams.get('limit') // 옵션: 'recent' = 최신 1페이지(1000건)만 (구버전 호환)
 
-  const apiKey = process.env.API_KEY
-  if (!apiKey || apiKey === '여기에_API키_입력') {
+  // ODCLOUD_API_KEY 우선 (특공·경쟁률과 동일 키) → API_KEY2 → API_KEY 순으로 폴백
+  const apiKey = apiKeys()[0]
+  if (!apiKey) {
     return NextResponse.json(getDummyData())
   }
 
