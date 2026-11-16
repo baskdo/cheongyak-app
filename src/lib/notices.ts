@@ -438,7 +438,7 @@ export async function syncNotices(budgetMs = 7000): Promise<SyncResult> {
   const deadline = t0 + budgetMs
   const fetched: string[] = []
   const trace: string[] = []
-  const mark = (label: string) => trace.push(`${label} ${Date.now() - t0}ms`)
+  const mark = (label: string) => { const line = `${label} ${Date.now() - t0}ms`; trace.push(line); console.log('[sync]', line) }
   const result = (partial: Partial<SyncResult>): SyncResult =>
     ({ ok: false, count: 0, ms: Date.now() - t0, fetched, pending: 0, assembled: false, trace, ...partial })
 
@@ -448,6 +448,7 @@ export async function syncNotices(budgetMs = 7000): Promise<SyncResult> {
     try { sql = await sqlClient() } catch (e) { return result({ error: 'DB 연결 실패: ' + String(e) }) }
     if (!sql) return result({ error: 'DATABASE_URL 없음' })
     mark('db연결')
+    console.log('[sync] start budget', budgetMs)
 
     // 1) 현재 저장 상태
     const meta = (await sql`SELECT endpoint, page, total, updated_at FROM notices_raw`) as RawMeta[]
@@ -466,13 +467,14 @@ export async function syncNotices(budgetMs = 7000): Promise<SyncResult> {
       const label = (endpoint === EP_DETAIL ? 'Detail' : 'Mdl') + '#' + page
       const tp = Date.now()
       const pj = await fetchPageAnyKey(endpoint, page, deadline - 1200, trace)
-      if (!pj) { fetched.push(label + ' 실패'); break }
+      if (!pj) { fetched.push(label + ' 실패'); console.log('[sync] fail', label, trace.join(' | ')); break }
       const tf = Date.now()
       const total = Number(pj.totalCount ?? 0)
       await sql`INSERT INTO notices_raw (endpoint, page, data, total, updated_at)
                 VALUES (${endpoint}, ${page}, ${JSON.stringify(pj.data)}::jsonb, ${total}, now())
                 ON CONFLICT (endpoint, page) DO UPDATE SET data = EXCLUDED.data, total = EXCLUDED.total, updated_at = now()`
       fetched.push(`${label} api${tf - tp}ms db${Date.now() - tf}ms`)
+      console.log('[sync] fetched', fetched[fetched.length - 1])
       const m = has(endpoint, page)
       if (m) { m.total = total; m.updated_at = new Date().toISOString() }
       else meta.push({ endpoint, page, total, updated_at: new Date().toISOString() })
@@ -509,6 +511,6 @@ export async function syncNotices(budgetMs = 7000): Promise<SyncResult> {
 
   // 어떤 경우에도 제한시간 안에 응답 (타임아웃 504 대신 진단 정보를 돌려준다)
   const guard = new Promise<SyncResult>((resolve) =>
-    setTimeout(() => resolve(result({ ok: true, error: `시간 초과 — 중간까지 처리됨`, pending: -1 })), budgetMs + 1800))
+    setTimeout(() => { console.log('[sync] guard fired', trace.join(' | '), fetched.join(' | ')); resolve(result({ ok: true, error: `시간 초과 — 중간까지 처리됨`, pending: -1 })) }, budgetMs + 1200))
   return Promise.race([work(), guard])
 }

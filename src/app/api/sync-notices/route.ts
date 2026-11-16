@@ -17,7 +17,11 @@ export async function GET(request: Request) {
   const given = searchParams.get('key') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || ''
   if (!secret || given !== secret) return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
 
-  const r = await syncNotices(7000)
-  const cache = await loadNoticeCache()
-  return NextResponse.json({ ...r, cacheCount: cache?.count ?? 0, updatedAt: cache?.updatedAt || null }, { status: r.ok ? 200 : 500 })
+  const t0 = Date.now()
+  console.log('[sync-notices] request start')
+  const r = await syncNotices(5500)
+  // 남은 시간이 있을 때만 캐시 메타 조회 (10초 제한 보호)
+  const cache = Date.now() - t0 < 7500 ? await loadNoticeCache() : null
+  console.log('[sync-notices] respond', Date.now() - t0, 'ms', JSON.stringify({ ok: r.ok, fetched: r.fetched, pending: r.pending, error: r.error }))
+  return NextResponse.json({ ...r, cacheCount: cache?.count ?? null, updatedAt: cache?.updatedAt || null }, { status: r.ok ? 200 : 500 })
 }
