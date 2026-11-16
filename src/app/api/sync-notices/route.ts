@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { syncNotices, loadNoticeCache } from '@/lib/notices'
+import { syncNotices, noticeCacheMeta } from '@/lib/notices'
 
 // 공고 목록 동기화 — 공공데이터 → Neon(notices_raw → notices_cache)
 //   GET /api/sync-notices?key=CRON_SECRET        (cron-job.org: 06~23시 10~30분 간격, www 주소로)
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   console.log('[sync-notices] request start')
   const r = await syncNotices(5500)
   // 남은 시간이 있을 때만 캐시 메타 조회 (10초 제한 보호)
-  const cache = Date.now() - t0 < 7500 ? await loadNoticeCache() : null
+  const cache = Date.now() - t0 < 8000 ? await noticeCacheMeta() : null
   console.log('[sync-notices] respond', Date.now() - t0, 'ms', JSON.stringify({ ok: r.ok, fetched: r.fetched, pending: r.pending, error: r.error }))
   return NextResponse.json({ ...r, cacheCount: cache?.count ?? null, updatedAt: cache?.updatedAt || null }, { status: r.ok ? 200 : 500 })
 }
