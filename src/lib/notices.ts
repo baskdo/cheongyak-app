@@ -8,7 +8,7 @@ import { neon } from '@neondatabase/serverless'
 //   status(접수예정/접수중/접수마감)는 날짜에 따라 바뀌므로 저장하지 않고 읽을 때 계산한다.
 
 const BASE_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoDetailSvc/v1'
-const COMPETITION_BASE_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoCmpetRtSvc/v1'
+export const COMPETITION_BASE_URL = 'https://api.odcloud.kr/api/ApplyhomeInfoCmpetRtSvc/v1'
 
 type HouseTypeDetail = {
   type: string        // 주택형 원본 (예: "059.9000A")
@@ -65,9 +65,11 @@ export async function fetchAllPagesParallel<T>(endpoint: string, maxPage = 30, b
     const rows: T[] = [...(first.data as T[])]
     const total = Number(first.totalCount ?? 0)
     const pages = Math.min(maxPage, Math.max(1, Math.ceil(total / perPage)))
-    if (pages > 1) {
-      const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, i) => fetchPage(mk(i + 2))))
-      for (const pj of rest) if (pj?.data) rows.push(...(pj.data as T[]))
+    // 동시 8개씩 (공공데이터 포털 동시접속 제한 회피)
+    for (let p = 2; p <= pages; p += 8) {
+      const batch = Array.from({ length: Math.min(8, pages - p + 1) }, (_, i) => fetchPage(mk(p + i)))
+      const res = await Promise.all(batch)
+      for (const pj of res) if (pj?.data) rows.push(...(pj.data as T[]))
     }
     return rows
   }
@@ -76,7 +78,7 @@ export async function fetchAllPagesParallel<T>(endpoint: string, maxPage = 30, b
 
 type Rank1Status = 'sold_out' | 'has_short' | 'no_data'
 
-function buildRank1StatusMap(cmpetRows: CmpetRow[]): Map<string, Rank1Status> {
+export function buildRank1StatusMap(cmpetRows: CmpetRow[]): Map<string, Rank1Status> {
   // pblancNo → 주택형별 (suply, reqCnt 합계) 집계
   // 동일 주택형이라도 해당지역/기타로 행이 분리되니 reqCnt는 누적, suply는 max값 사용
   type TypeAgg = { suply: number; reqCnt: number }
@@ -365,17 +367,23 @@ export async function saveNoticeCache(items: NoticeItem[]): Promise<boolean> {
   }
 }
 
-/** 공공데이터 → 목록 조립 → DB 저장. 소요 3~6초 (병렬). 반환: 저장 건수 */
-export async function syncNotices(): Promise<{ ok: boolean; count: number; ms: number; error?: string }> {
+/**
+ * 공공데이터 → 목록 조립 → DB 저장. Vercel 10초 제한 안에 끝나야 하므로
+ *   - 공고 상세(≈3페이지) + 주택형(≈15페이지)만 받는다 (병렬, 동시 8개)
+ *   - 경쟁률 전체(5만 건, 30페이지)는 받지 않는다 → 1순위 마감 판정은 'no_data'(2순위 종료일까지 접수중으로 간주)
+ *     ※ 정확한 1순위 마감 여부는 접수현황/경쟁률 탭의 단지별 조회에서 확인
+ */
+export async function syncNotices(): Promise<{ ok: boolean; count: number; ms: number; fetchMs?: number; saveMs?: number; error?: string }> {
   const t0 = Date.now()
   if (apiKeys().length === 0) return { ok: false, count: 0, ms: 0, error: 'API 키 없음' }
-  const [apartments, types, cmpetRows] = await Promise.all([
+  const [apartments, types] = await Promise.all([
     fetchAllPagesParallel<ApartmentRow>('getAPTLttotPblancDetail', 10),
     fetchAllPagesParallel<TypeRow>('getAPTLttotPblancMdl', 30),
-    fetchAllPagesParallel<CmpetRow>('getAPTLttotPblancCmpet', 30, COMPETITION_BASE_URL).catch(() => [] as CmpetRow[]),
   ])
-  if (apartments.length === 0) return { ok: false, count: 0, ms: Date.now() - t0, error: '공고 상세 API 응답 없음 (키/쿼터 확인)' }
-  const items = buildNoticeItems(apartments, types, buildRank1StatusMap(cmpetRows))
+  const fetchMs = Date.now() - t0
+  if (apartments.length === 0) return { ok: false, count: 0, ms: fetchMs, fetchMs, error: '공고 상세 API 응답 없음 (키/쿼터 확인)' }
+  const items = buildNoticeItems(apartments, types, new Map<string, Rank1Status>())
+  const t1 = Date.now()
   const saved = await saveNoticeCache(items)
-  return { ok: saved, count: items.length, ms: Date.now() - t0, error: saved ? undefined : 'DB 저장 실패' }
+  return { ok: saved, count: items.length, ms: Date.now() - t0, fetchMs, saveMs: Date.now() - t1, error: saved ? undefined : 'DB 저장 실패' }
 }

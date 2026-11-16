@@ -7,15 +7,14 @@ import { loadNoticeCache, syncNotices, applyStatus, apiKeys, fetchAllPagesParall
 //   GET /api/apartments?limit=recent   → 최신 1,000건 (DB에서 슬라이스)
 //   GET /api/apartments?fresh=1        → 🔄 새로고침: 캐시가 10분 넘었으면 그 자리에서 동기화 후 응답
 //
-//   캐시 없음(최초) → 동기화 시도 → 그래도 없으면 라이브 1페이지 폴백
-//   캐시가 3시간 넘게 오래됐으면(크론 중단 등) 요청 중 1건이 동기화를 수행
+//   캐시 없음(최초) → 라이브 1페이지로 즉시 응답 (동기화는 /api/sync-notices 크론이 수행)
+//   캐시가 오래돼도 기다리게 하지 않고 캐시로 응답 (fresh=1 일 때만 그 자리에서 동기화)
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 10
 
 const STALE_FOR_FRESH_MS = 10 * 60 * 1000        // fresh=1 일 때 이보다 오래됐으면 동기화
-const STALE_HARD_MS = 3 * 60 * 60 * 1000         // 일반 요청도 이보다 오래됐으면 동기화
 
 function respond(items: ReturnType<typeof applyStatus>, limit: string | null, meta: Record<string, unknown>) {
   const out = limit === 'recent' ? items.slice(0, 1000) : items
@@ -33,9 +32,8 @@ export async function GET(request: Request) {
 
   let cache = await loadNoticeCache()
   const age = cache ? Date.now() - new Date(cache.updatedAt).getTime() : Infinity
-  const needSync = !cache || (fresh && age > STALE_FOR_FRESH_MS) || age > STALE_HARD_MS
-
-  if (needSync) {
+  // 🔄 새로고침(fresh=1)일 때만 그 자리에서 동기화 (사용자 의도). 그 외엔 절대 기다리게 하지 않음.
+  if (fresh && age > STALE_FOR_FRESH_MS) {
     const r = await syncNotices()
     if (r.ok) cache = await loadNoticeCache()
     else console.error('[apartments] sync failed:', r.error)
