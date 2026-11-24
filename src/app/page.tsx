@@ -2934,7 +2934,8 @@ function ReportBuilderPanel({
   const total = selection.detail.length + selection.compare.length
 
   // === 텔레그램 알림 예약 (서버 저장) ===
-  const [watch, setWatch] = useState<{ id: number; title: string; detail: string[]; compare: string[] } | null>(null)
+  type WatchItem = { id: number; title: string; detail: string[]; compare: string[] }
+  const [watches, setWatches] = useState<WatchItem[]>([])
   const [watchBusy, setWatchBusy] = useState(false)
   const [watchMsg, setWatchMsg] = useState('')
   // 관리자 키: /?admin=키 로 한 번 열면 이 브라우저에 저장 → 이후 자동 사용. 키가 없으면 예약 섹션을 아예 표시하지 않음 (도배 방지)
@@ -2950,7 +2951,7 @@ function ReportBuilderPanel({
       }
       setAdminKey(window.localStorage.getItem('cyhome_admin_key') || '')
     } catch { /* 무시 */ }
-    fetch('/api/notify-watch', { cache: 'no-store' }).then((r) => r.json()).then((j) => { if (j?.ok) setWatch(j.watch) }).catch(() => {})
+    fetch('/api/notify-watch', { cache: 'no-store' }).then((r) => r.json()).then((j) => { if (j?.ok) setWatches(j.watches || (j.watch ? [j.watch] : [])) }).catch(() => {})
   }, [])
   const reserveWatch = async () => {
     if (selection.detail.length === 0) { setWatchMsg('세부조회 단지를 1개 이상 선택하세요'); return }
@@ -2961,16 +2962,19 @@ function ReportBuilderPanel({
         body: JSON.stringify({ detail: selection.detail.map((d) => d.id), compare: selection.compare.map((d) => d.id), title: selection.detail.map((d) => d.name).join(' / ') }),
       })
       const j = await res.json()
-      if (j?.ok) { setWatch(j.watch); setWatchMsg('예약됨 — 특공·1순위·2순위 발표 시각에 그룹방으로 보고서가 갑니다') }
+      if (j?.ok) {
+        setWatches(j.watches || [])
+        setWatchMsg(j.updated ? '같은 단지 예약이 있어 내용을 갱신했습니다' : '예약 추가됨 — 특공·1순위·2순위 발표 시각에 그룹방으로 보고서가 갑니다')
+      }
       else setWatchMsg(j?.error || '예약 실패')
     } catch (e) { setWatchMsg(String(e)) } finally { setWatchBusy(false) }
   }
-  const cancelWatch = async () => {
+  const cancelWatch = async (id: number) => {
     setWatchBusy(true); setWatchMsg('')
     try {
-      const res = await fetch('/api/notify-watch', { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
+      const res = await fetch(`/api/notify-watch?id=${id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
       const j = await res.json()
-      if (j?.ok) { setWatch(null); setWatchMsg('예약 해제됨') } else setWatchMsg(j?.error || '해제 실패')
+      if (j?.ok) { setWatches(j.watches || []); setWatchMsg('예약 해제됨') } else setWatchMsg(j?.error || '해제 실패')
     } catch (e) { setWatchMsg(String(e)) } finally { setWatchBusy(false) }
   }
   const results = q.trim().length >= 2
@@ -3057,25 +3061,32 @@ function ReportBuilderPanel({
         {adminKey && (
         <div className="mt-3 pt-3 border-t border-gray-100">
           <p className="text-[11px] font-bold text-gray-700 mb-1">🔔 텔레그램 알림예약</p>
-          {watch ? (
-            <div className="text-[11px] bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 mb-2">
-              <p className="font-semibold text-emerald-800 truncate" title={watch.title}>예약 중: {watch.title || `${watch.detail.length}개 단지`}</p>
-              <p className="text-emerald-700">세부 {watch.detail.length} · 비교 {watch.compare.length} — 발표 시각에 텔레그램 그룹방으로 자동 발송</p>
-            </div>
+          {watches.length > 0 ? (
+            <ul className="space-y-1 mb-2">
+              {watches.map((w, i) => (
+                <li key={w.id} className="flex items-start gap-1.5 text-[11px] bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
+                  <span className="shrink-0 font-bold text-emerald-700">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-emerald-800 truncate" title={w.title}>{w.title || `${w.detail.length}개 단지`}</p>
+                    <p className="text-emerald-700">세부 {w.detail.length} · 비교 {w.compare.length}</p>
+                  </div>
+                  <button type="button" onClick={() => cancelWatch(w.id)} disabled={watchBusy}
+                    className="shrink-0 text-[10px] px-2 py-0.5 rounded border border-gray-200 bg-white text-gray-500">해제</button>
+                </li>
+              ))}
+              <li className="text-[10px] text-gray-400">같은 날 발표가 겹치면 위 순서(예약 순)대로 발송됩니다.</li>
+            </ul>
           ) : (
             <p className="text-[11px] text-gray-400 mb-2">세부/비교 선택을 예약하면 특공·1순위·2순위 발표 시각(19:30 전후)에 텔레그램 그룹방으로 보고서가 갑니다.</p>
           )}
           <div className="flex gap-2">
             <button type="button" onClick={reserveWatch} disabled={watchBusy || selection.detail.length === 0}
               className="flex-1 text-xs font-bold py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400">
-              {watchBusy ? '처리 중…' : watch ? '현재 선택으로 다시 예약' : '알림예약'}
+              {watchBusy ? '처리 중…' : watches.length > 0 ? '현재 선택으로 예약 추가' : '알림예약'}
             </button>
-            {watch && (
-              <button type="button" onClick={cancelWatch} disabled={watchBusy} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-500">해제</button>
-            )}
           </div>
           {watchMsg && <p className="text-[10px] mt-1.5 text-gray-600">{watchMsg}</p>}
-          <p className="text-[10px] text-gray-400 mt-1.5">세부조회는 최대 3개 단지까지 발송됩니다.</p>
+          <p className="text-[10px] text-gray-400 mt-1.5">예약 1건당 세부조회는 최대 3개 단지, 예약은 동시에 10건까지 유지됩니다. 2순위까지 보고되면(1순위 마감 시 2순위 접수일 다음 날) 자동 해제됩니다.</p>
         </div>
         )}
       </div>

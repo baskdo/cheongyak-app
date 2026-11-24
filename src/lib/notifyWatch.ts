@@ -44,6 +44,13 @@ export async function loadActiveWatch(): Promise<NotifyWatch | null> {
   return rows[0] && rows[0].active ? toWatch(rows[0]) : null
 }
 
+// 켜져 있는 예약 전부 — 접수 순서(id 오름차순). 알림은 같은 날 저녁 발표가 겹치면 이 순서대로 보낸다.
+export async function loadActiveWatches(): Promise<NotifyWatch[]> {
+  const sql = await getSql()
+  const rows = (await sql`SELECT * FROM notify_watch WHERE active = true ORDER BY id ASC`) as Row[]
+  return rows.filter((r) => r.active).map(toWatch)
+}
+
 export async function deactivateWatch(id: number) {
   const sql = await getSql()
   await sql`UPDATE notify_watch SET active = false WHERE id = ${id}`

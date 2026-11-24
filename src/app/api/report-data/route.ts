@@ -3,6 +3,11 @@ import { neon } from '@neondatabase/serverless'
 import {
   ReportData, ReportSite, ReportRow, ReportStage, sumRows, emptyTotals,
 } from '@/lib/reportTypes'
+import { kstMinutesOfDay } from '@/lib/announceWindow'
+
+// 발표 후 이 시각(KST)이 지나도록 청약홈 정상 조회 결과가 0건이면, 그날 순위 접수는 "실제 0건"으로 본다.
+// (19:30 직후엔 접속 폭주로 반영 전 0건 화면이 올 수 있어 5분 여유를 둔다)
+const ZERO_CONFIRM_FROM = 19 * 60 + 35
 
 // 청약결과 보고서 데이터 — 세부조회(detail) + 비교조회(compare) 단지를 한 번에
 //
@@ -75,6 +80,22 @@ async function fetchJson<T>(url: string, init: RequestInit = {}, timeoutMs = 600
   }
 }
 
+// 청약홈 직접 조회용: 접속 폭주로 끊기거나 실패한 경우에만 1회 재시도한다.
+//   "발표 전이라 데이터 없음"은 정상 응답이므로 재시도하지 않는다 (평소 매분 호출에 부담 주지 않기 위해).
+type ScrapeResult = { ok: boolean; error?: string }
+function isTransient(json: ScrapeResult | null): boolean {
+  if (!json) return true                                       // 타임아웃·네트워크 오류·5xx
+  if (json.ok) return false
+  return !/데이터 없음|유효하지 않음/.test(json.error || '')   // 청약홈 응답 실패 등
+}
+async function fetchScrape<T extends ScrapeResult>(url: string): Promise<T | null> {
+  const first = await fetchJson<T>(url, {}, 7000)
+  if (!isTransient(first)) return first
+  await new Promise((r) => setTimeout(r, 800))
+  const second = await fetchJson<T>(url, {}, 5000)
+  return second ?? first
+}
+
 // ---------- 1) 공공 API: 메타 + 공급 ----------
 type Meta = {
   houseName: string
@@ -123,13 +144,14 @@ async function fetchSupply(key: string, pblancNo: string): Promise<SupplyMap> {
 // ---------- 2) 특공: 청약홈 직접 ----------
 type SpsplyScrape = {
   ok: boolean
+  error?: string
   houseTypes: Array<{ type: string; spsplyHshldco: number; totalApplied: number }>
 }
 type SpsplyMap = Record<string, { assigned: number; applied: number }>
 async function fetchSpsplyScrape(origin: string, pblancNo: string, houseNm: string): Promise<SpsplyMap | null> {
   const params = new URLSearchParams({ pblancNo })
   if (houseNm) params.set('houseNm', houseNm)
-  const json = await fetchJson<SpsplyScrape>(`${origin}/api/spsply-scrape?${params.toString()}`)
+  const json = await fetchScrape<SpsplyScrape>(`${origin}/api/spsply-scrape?${params.toString()}`)
   if (!json?.ok || !json.houseTypes?.length) return null
   const map: SpsplyMap = {}
   for (const h of json.houseTypes) {
@@ -141,6 +163,7 @@ async function fetchSpsplyScrape(origin: string, pblancNo: string, houseNm: stri
 // ---------- 3) 1·2순위: 청약홈 직접 ----------
 type RankScrape = {
   ok: boolean
+  error?: string
   rank1ByType: Array<{ type: string; suply: number; local: number; ggOther?: number; etc: number; total: number }>
   rank2ByType?: Array<{ type: string; hasData: boolean; total: number }>
 }
@@ -149,7 +172,7 @@ type RankMap = Record<string, {
   rank2Applied: number; rank2HasData: boolean
 }>
 async function fetchRankScrape(origin: string, pblancNo: string): Promise<RankMap | null> {
-  const json = await fetchJson<RankScrape>(`${origin}/api/applyhome-competition?pblancNo=${pblancNo}`)
+  const json = await fetchScrape<RankScrape>(`${origin}/api/applyhome-competition?pblancNo=${pblancNo}`)
   if (!json?.ok || !json.rank1ByType?.length) return null
   const map: RankMap = {}
   for (const r of json.rank1ByType) {
@@ -265,6 +288,7 @@ async function buildSite(origin: string, key: string, pblancNo: string): Promise
   }
 
   const todayKST = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10)
+  const afterConfirm = kstMinutesOfDay() >= ZERO_CONFIRM_FROM
   const spsplyMap = spsplyScrape || spsplyMapFromDb(dbItem)
   base.source.spsply = spsplyScrape ? 'applyhome' : spsplyMap ? 'db' : 'none'
   const rankMap = rankScrape || rankMapFromDb(dbItem)
@@ -293,7 +317,12 @@ async function buildSite(origin: string, key: string, pblancNo: string): Promise
       rank1Local: rk?.local ?? 0, rank1Gg: rk?.gg ?? 0, rank1Etc: rk?.etc ?? 0,
       rank2Applied: rk?.rank2Applied ?? 0,
       // 청약홈 팝업은 접수 전에도 2순위 행을 0건으로 보여주므로, 접수가 있거나 2순위 접수일이 지난 뒤에만 "데이터 있음"으로 본다
-      rank2HasData: !!rk?.rank2HasData && ((rk?.rank2Applied ?? 0) > 0 || (!!base.dates.rank2 && todayKST > base.dates.rank2)),
+      //   + 2순위 접수일 당일 19:35 이후 청약홈 정상 조회로 2순위 행이 있으면 0건이어도 결과로 본다 (2순위 0건 당일 보고)
+      rank2HasData: !!rk?.rank2HasData && (
+        (rk?.rank2Applied ?? 0) > 0 ||
+        (!!base.dates.rank2 && todayKST > base.dates.rank2) ||
+        (!!rankScrape && base.dates.rank2 === todayKST && afterConfirm)
+      ),
     })
   }
   rows.sort(byType)
@@ -304,9 +333,11 @@ async function buildSite(origin: string, key: string, pblancNo: string): Promise
   //   (특공 발표일 저녁에는 1순위 팝업이 0건 표로 이미 떠 있어, 건수만 보면 1·2순위 결과로 오인됨)
   const t = base.totals
   const rank1Passed = !!base.dates.rank1 && todayKST > base.dates.rank1
+  // 1순위 접수일 당일 19:35 이후 청약홈 정상 조회 → 0건이어도 1순위 결과로 본다 (1순위 0건 당일 보고)
+  const rank1ConfirmedToday = !!rankScrape && base.dates.rank1 === todayKST && afterConfirm
   let stage: ReportStage = 'before'
   if (t.rank2HasData) stage = 'rank2'
-  else if (t.rank1Applied > 0 || (rankMap && rank1Passed)) stage = 'rank1'
+  else if (t.rank1Applied > 0 || (rankMap && rank1Passed) || rank1ConfirmedToday) stage = 'rank1'
   else if (spsplyMap && (t.spsplyApplied > 0 || (!!base.dates.spsply && todayKST >= base.dates.spsply))) stage = 'spsply'
   if (stage === 'rank2' && base.dates.announce && todayKST >= base.dates.announce) stage = 'final'
   base.stage = stage
