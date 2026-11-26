@@ -1735,11 +1735,11 @@ function ThisWeekCard({
 
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover">
-      {/* 상단 영역 - 단지 정보 + 상태 박스 (가로 분할) */}
-      <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 mb-4">
-        {/* 왼쪽: 단지 기본정보 */}
-        <div className="lg:w-80 flex flex-col gap-3">
-      {/* 헤더 */}
+      {/* 상단 영역 - 단지 정보(위) + 상태 박스·표(아래) 세로 배치 */}
+      <div className="flex flex-col gap-4 mb-4">
+        {/* 위: 단지 기본정보 */}
+        <div className="flex flex-col gap-2">
+      {/* 헤더: 왼쪽 유형·상태 / 오른쪽 위 [세부][비교] */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-xs font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded">APT</span>
@@ -1747,52 +1747,53 @@ function ThisWeekCard({
             <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${STATUS_DOT[notice.status]}`} />
             {notice.status}
           </span>
-          {onToggleReport && (
-            <span className="inline-flex items-center gap-1 ml-1">
-              <button
-                type="button"
-                onClick={() => onToggleReport('detail', notice)}
-                title="보고서 세부조회에 추가/제거"
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${reportMark === 'detail' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-300 hover:border-blue-400'}`}
-              >
-                {reportMark === 'detail' ? '✓ ' : ''}세부
-              </button>
-              <button
-                type="button"
-                onClick={() => onToggleReport('compare', notice)}
-                title="보고서 비교조회에 추가/제거"
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${reportMark === 'compare' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-500 border-gray-300 hover:border-emerald-400'}`}
-              >
-                {reportMark === 'compare' ? '✓ ' : ''}비교
-              </button>
-            </span>
-          )}
         </div>
-        {/* 특공/1순위 일정: 한 줄, 색상 구분 */}
-        {/* 특공일이 없는 단지(LH 공공분양 등)는 1순위만 표시 */}
-        <div className="flex items-center gap-1.5 text-[11px] whitespace-nowrap">
-          {(() => {
-            const spsplyDateStr = deriveSpsplyDate(notice)
-            const rank1DateStr = deriveRank1Date(notice)
-            return (
-              <>
-                {spsplyDateStr && (
-                  <>
-                    <span className="font-bold text-emerald-600">특공</span>
-                    <span className="font-semibold text-gray-700 tabular-nums">
-                      {formatShortDate(spsplyDateStr)}
-                    </span>
-                    <span className="text-gray-300">,</span>
-                  </>
-                )}
-                <span className="font-bold text-rose-600">1순위</span>
-                <span className="font-semibold text-gray-700 tabular-nums">
-                  {formatShortDate(rank1DateStr)}
-                </span>
-              </>
-            )
-          })()}
-        </div>
+        {onToggleReport && (
+          <span className="inline-flex items-center gap-1 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => onToggleReport('detail', notice)}
+              title="보고서 세부조회에 추가/제거"
+              className={`text-[11px] font-bold px-2 py-0.5 rounded border transition-colors ${reportMark === 'detail' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-300 hover:border-blue-400'}`}
+            >
+              {reportMark === 'detail' ? '✓ ' : ''}세부
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleReport('compare', notice)}
+              title="보고서 비교조회에 추가/제거"
+              className={`text-[11px] font-bold px-2 py-0.5 rounded border transition-colors ${reportMark === 'compare' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-500 border-gray-300 hover:border-emerald-400'}`}
+            >
+              {reportMark === 'compare' ? '✓ ' : ''}비교
+            </button>
+          </span>
+        )}
+      </div>
+
+      {/* 특공/1순위 일정: 단지명 바로 위 한 줄 */}
+      {/* 특공일이 없는 단지(LH 공공분양 등)는 1순위만 표시 */}
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        {(() => {
+          const spsplyDateStr = deriveSpsplyDate(notice)
+          const rank1DateStr = deriveRank1Date(notice)
+          return (
+            <>
+              {spsplyDateStr && (
+                <>
+                  <span className="font-bold text-emerald-600">특공</span>
+                  <span className="font-semibold text-gray-700 tabular-nums">
+                    {formatShortDate(spsplyDateStr)}
+                  </span>
+                  <span className="text-gray-300">,</span>
+                </>
+              )}
+              <span className="font-bold text-rose-600">1순위</span>
+              <span className="font-semibold text-gray-700 tabular-nums">
+                {formatShortDate(rank1DateStr)}
+              </span>
+            </>
+          )
+        })()}
       </div>
 
       {/* 단지명 */}
@@ -1802,10 +1803,10 @@ function ThisWeekCard({
           <span className="text-red-400">📍</span>{notice.region}
         </p>
       </div>
-        </div>{/* 왼쪽 컬럼 끝 */}
+        </div>{/* 단지 기본정보 끝 */}
 
-        {/* 오른쪽: 상태 박스 + 특별공급 표 */}
-        <div className="flex-1 flex flex-col gap-3">
+        {/* 아래: 상태 박스 + 특별공급 표 + 1·2순위 표 */}
+        <div className="flex flex-col gap-3">
 
       {/* 상태 박스 */}
       <div>
@@ -2565,8 +2566,8 @@ function ThisWeekCard({
         )
       })()}
 
-        </div>{/* 오른쪽 컬럼 끝 */}
-      </div>{/* 가로 분할 영역 끝 */}
+        </div>{/* 결과 영역 끝 */}
+      </div>{/* 상단 영역 끝 */}
 
       {/* ============================================================ */}
       {/* 숨겨진 캡처용 가로 레이아웃 (화면에는 안 보임, html2canvas로만 캡처) */}
